@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+*.egg-info/
+
+# Node
+node_modules/
+build/
+.env.local
+
+# Secrets - NEVER commit these!
+.env
+*.pem
+*.key
+.ssh/
+*.pub
+id_*
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Terraform
+.terraform/
+*.tfstate
