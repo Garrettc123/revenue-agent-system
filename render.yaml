@@ -1,0 +1,68 @@
+# Render.com deployment configuration
+services:
+  # Main API Service
+  - type: web
+    name: revenue-agent-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PAYMENT_ACCOUNT
+        value: gwc2780@gmail.com
+      - key: API_TOKEN
+        generateValue: true
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # MLOps API Service
+  - type: web
+    name: mlops-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python mlops-system/prometheus-ultraops.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: API_TOKEN
+        value: prometheus-production-token-2025
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # PostgreSQL Database
+  - type: pserv
+    name: revenue-db
+    env: docker
+    region: oregon
+    plan: free
+    image:
+      url: postgres:15-alpine
+    envVars:
+      - key: POSTGRES_DB
+        value: revenue_agent
+      - key: POSTGRES_USER
+        value: agent
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+    disk:
+      name: postgres-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
+
+  # Redis Cache
+  - type: pserv
+    name: revenue-redis
+    env: docker
+    region: oregon
+    plan: free
+    image:
+      url: redis:7-alpine
+    disk:
+      name: redis-data
+      mountPath: /data
+      sizeGB: 1
