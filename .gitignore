@@ -1,29 +1,67 @@
 # Python
 __pycache__/
 *.py[cod]
-venv/
-env/
-*.egg-info/
-
-# Node
-node_modules/
+*$py.class
+*.so
+.Python
 build/
-.env.local
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Secrets - NEVER commit these!
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# Environment Variables
 .env
-*.pem
-*.key
-.ssh/
-*.pub
-id_*
+.env.local
+.env.*.local
 
-# Logs
-*.log
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
 # OS
 .DS_Store
+Thumbs.db
 
-# Terraform
-.terraform/
-*.tfstate
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Docker
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# Secrets
+secrets/
+*.pem
+*.key
+*.cert
+
+# Monitoring
+prometheus_data/
+grafana_data/
