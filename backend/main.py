@@ -6,15 +6,16 @@ Starts the FastAPI application server
 
 import uvicorn
 import sys
-import os
+from pathlib import Path
 
-# Add src directory to Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add src directory to Python path for module imports
+src_path = Path(__file__).parent / 'src'
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
+from api.main import app
 
 if __name__ == "__main__":
-    # Import the app from the api module
-    from api.main import app
-    
     # Run the server
     uvicorn.run(
         app,
