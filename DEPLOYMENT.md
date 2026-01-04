@@ -9,6 +9,11 @@
 git clone https://github.com/Garrettc123/revenue-agent-system.git
 cd revenue-agent-system
 
+# Set up environment variables
+cp .env.example .env
+# Edit .env file with your actual credentials
+nano .env  # or use your preferred editor
+
 # Start all services
 docker-compose up -d
 
@@ -22,7 +27,7 @@ docker-compose logs -f
 **Services will be available at:**
 - Main API: http://localhost:8000
 - MLOps API: http://localhost:8090
-- Grafana Dashboard: http://localhost:3000 (admin/admin2025)
+- Grafana Dashboard: http://localhost:3000 (use credentials from .env)
 - Prometheus: http://localhost:9090
 
 ---
@@ -102,16 +107,26 @@ python trading-systems/predictive-trading-bot.py
 
 ## Environment Variables
 
-```bash
-# Required
-PAYMENT_ACCOUNT=gwc2780@gmail.com
-API_TOKEN=prometheus-production-token-2025
+Create a `.env` file from the template:
 
-# Database
-POSTGRES_HOST=localhost
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` with your actual values:
+
+```bash
+# Required - Set your actual values
+PAYMENT_ACCOUNT=your-paypal-email@example.com
+API_TOKEN=your-secure-api-token-here
+
+# Database - Change password for production
 POSTGRES_DB=revenue_agent
 POSTGRES_USER=agent
-POSTGRES_PASSWORD=secure_password_2025
+POSTGRES_PASSWORD=your-secure-postgres-password
+
+# Grafana - Change password for production
+GF_SECURITY_ADMIN_PASSWORD=your-secure-grafana-password
 
 # Redis
 REDIS_HOST=localhost
@@ -120,6 +135,12 @@ REDIS_PORT=6379
 # Trading
 TICKERS=AAPL,TSLA,MSFT,NVDA,GOOGL,AMZN
 ```
+
+**Important Security Notes:**
+- Never commit `.env` file to version control
+- Use strong, unique passwords for production
+- Rotate credentials regularly
+- Generate secure tokens: `openssl rand -hex 32`
 
 ---
 
@@ -134,7 +155,7 @@ curl http://localhost:8090/health
 
 # Test prediction
 curl -X POST http://localhost:8090/predict \
-  -H "Authorization: Bearer prometheus-production-token-2025" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "lag_1": 105.5,
@@ -149,7 +170,7 @@ curl -X POST http://localhost:8090/predict \
 
 **Grafana Dashboard:**
 1. Open http://localhost:3000
-2. Login: admin / admin2025
+2. Login with credentials from your `.env` file (GF_SECURITY_ADMIN_PASSWORD)
 3. View "Revenue Agent System" dashboard
 
 **Prometheus Metrics:**
@@ -223,8 +244,7 @@ kubectl apply -f k8s/
 ## Support
 
 - **GitHub Issues:** https://github.com/Garrettc123/revenue-agent-system/issues
-- **Payment Account:** gwc2780@gmail.com
-- **Documentation:** See README.md
+- **Documentation:** See README.md and .env.example for configuration
 
 ---
 
