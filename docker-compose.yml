@@ -2,15 +2,20 @@ version: '3.8'
 
 services:
   # Main Revenue Agent System
+  # Handles payment processing and core business logic
   revenue-agent:
     build: .
     ports:
       - "8000:8000"
       - "8090:8090"
     environment:
-      - PAYMENT_ACCOUNT=gwc2780@gmail.com
-      - API_TOKEN=prometheus-production-token-2025
+      # Payment configuration - set in .env file
+      - PAYMENT_ACCOUNT=${PAYMENT_ACCOUNT}
+      # API security token - set in .env file
+      - API_TOKEN=${API_TOKEN}
+      # Database connection
       - POSTGRES_HOST=postgres
+      # Cache connection
       - REDIS_HOST=redis
     depends_on:
       - postgres
@@ -24,24 +29,27 @@ services:
       start_period: 40s
 
   # PostgreSQL Database
+  # Primary data storage for revenue tracking and agent state
   postgres:
     image: postgres:15-alpine
     environment:
-      - POSTGRES_DB=revenue_agent
-      - POSTGRES_USER=agent
-      - POSTGRES_PASSWORD=secure_password_2025
+      # Database credentials - set in .env file
+      - POSTGRES_DB=${POSTGRES_DB:-revenue_agent}
+      - POSTGRES_USER=${POSTGRES_USER:-agent}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agent"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent}"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   # Redis Cache
+  # Fast in-memory cache for session and temporary data
   redis:
     image: redis:7-alpine
     ports:
@@ -56,6 +64,7 @@ services:
       retries: 5
 
   # Prometheus Monitoring
+  # Collects and stores time-series metrics
   prometheus:
     image: prom/prometheus:latest
     ports:
@@ -69,13 +78,15 @@ services:
     restart: unless-stopped
 
   # Grafana Dashboard
+  # Visualization and monitoring dashboard
   grafana:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin2025
-      - GF_SERVER_ROOT_URL=http://localhost:3000
+      # Grafana admin credentials - set in .env file
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL:-http://localhost:3000}
     volumes:
       - grafana_data:/var/lib/grafana
       - ./monitoring/grafana-dashboards:/etc/grafana/provisioning/dashboards
@@ -84,21 +95,25 @@ services:
     restart: unless-stopped
 
   # Trading Bot Service
+  # Executes automated trading strategies
   trading-bot:
     build: .
     command: ["python", "trading-systems/predictive-trading-bot.py"]
     environment:
-      - TICKERS=AAPL,TSLA,MSFT,NVDA,GOOGL,AMZN
+      # Stock tickers to monitor - set in .env file
+      - TICKERS=${TICKERS:-AAPL,TSLA,MSFT,NVDA,GOOGL,AMZN}
     restart: unless-stopped
 
   # MLOps API Service
+  # Machine learning operations and predictions
   mlops-api:
     build: .
     command: ["python", "mlops-system/prometheus-ultraops.py"]
     ports:
       - "8091:8090"
     environment:
-      - API_TOKEN=prometheus-production-token-2025
+      # API security token - set in .env file
+      - API_TOKEN=${API_TOKEN}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8090/health"]
