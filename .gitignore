@@ -1,3 +1,8 @@
+# Environment Variables - NEVER COMMIT
+.env
+.env.local
+.env.*.local
+
 # Python
 __pycache__/
 *.py[cod]
@@ -16,31 +21,27 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+PIPFILE.lock
 
-# Virtual Environment
+# Virtual Environments
 venv/
-ENV/
 env/
-.venv
+ENV/
+env.bak/
+venv.bak/
 
-# Environment Variables
-.env
-.env.local
-.env.*.local
-
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
-Thumbs.db
 
 # Logs
 *.log
@@ -48,20 +49,40 @@ logs/
 
 # Database
 *.db
+*.sqlite
 *.sqlite3
+postgres_data/
 
-# Docker
-docker-compose.override.yml
-
-# Kubernetes
-*.kubeconfig
-
-# Secrets
-secrets/
-*.pem
-*.key
-*.cert
+# Redis
+redis_data/
+dump.rdb
 
 # Monitoring
 prometheus_data/
 grafana_data/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Secrets & Keys
+*.pem
+*.key
+*.cert
+*.crt
+secrets/
+credentials/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# macOS
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.temp
