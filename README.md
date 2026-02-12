@@ -26,7 +26,24 @@ A full-stack SaaS revenue agent system with multi-stream monetization capabiliti
 
 ## 🔧 Installation
 
-### 1. Clone the Repository
+### Quick Start (Recommended)
+```bash
+git clone https://github.com/Garrettc123/revenue-agent-system.git
+cd revenue-agent-system
+./start.sh
+```
+
+The quick start script will automatically install dependencies and start the server!
+
+### Full Build & Validation
+To run a complete build with tests and validation:
+```bash
+./build.sh
+```
+
+### Manual Installation
+
+#### 1. Clone the Repository
 ```bash
 git clone https://github.com/Garrettc123/revenue-agent-system.git
 cd revenue-agent-system
@@ -57,7 +74,15 @@ STRIPE_ENTERPRISE_PRICE_ID=price_xxx
 
 ## 🏃 Running the Application
 
-### Development Mode
+### Quick Start
+```bash
+./start.sh           # Development mode
+./start.sh prod      # Production mode
+```
+
+### Manual Start
+
+#### Development Mode
 ```bash
 npm run dev
 # or
@@ -66,7 +91,7 @@ python app.py
 
 The dashboard will be available at `http://localhost:5000`
 
-### Production Mode
+#### Production Mode
 ```bash
 npm start
 # or
@@ -137,6 +162,8 @@ git push heroku main
 ```
 revenue-agent-system/
 ├── app.py                      # Main Flask application
+├── build.sh                    # Full build script
+├── start.sh                    # Quick start script
 ├── stripe-integration.js       # Stripe subscription logic
 ├── affiliate-system.js         # Affiliate program management
 ├── content-monetization.js     # Content revenue tracking
@@ -147,6 +174,9 @@ revenue-agent-system/
 ├── Procfile                   # Heroku deployment config
 ├── render.yaml                # Render deployment config
 ├── .gitignore                 # Git ignore patterns
+├── .github/
+│   └── workflows/
+│       └── build.yml          # CI/CD pipeline
 └── tests/                     # Test suite
     └── test_app.py            # Application tests
 ```
@@ -160,6 +190,13 @@ revenue-agent-system/
 
 ## 🛠️ Build Commands
 
+### Complete Build
+Run full build with tests and validation:
+```bash
+./build.sh
+```
+
+### NPM Scripts
 ```bash
 # Install dependencies
 npm run install:python
