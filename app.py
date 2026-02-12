@@ -1,6 +1,6 @@
 from flask import Flask, render_template_string, jsonify
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
@@ -53,7 +53,7 @@ def revenue_api():
         "mrr": 5000,
         "customers": 12,
         "arr": 60000,
-        "timestamp": datetime.utcnow().isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat()
     })
 
 @app.route('/health')
