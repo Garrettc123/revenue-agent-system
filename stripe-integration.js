@@ -149,4 +149,128 @@ router.post('/billing-portal', async (req, res) => {
   }
 });
 
+// Webhook Handler for Stripe Events
+router.post('/webhook', async (req, res) => {
+  try {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error('[Stripe Webhook] Signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log(`[Stripe Webhook] Event received: ${event.type}`);
+
+    // Handle different event types
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object;
+        console.log(`[Stripe] Payment succeeded: ${paymentIntent.id}, Amount: $${paymentIntent.amount / 100}`);
+        // Trigger auto payout logic here if applicable
+        break;
+
+      case 'invoice.payment_succeeded':
+        const invoice = event.data.object;
+        console.log(`[Stripe] Invoice paid: ${invoice.id}, Amount: $${invoice.amount_paid / 100}`);
+        break;
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+        const subscription = event.data.object;
+        console.log(`[Stripe] Subscription ${event.type}: ${subscription.id}`);
+        break;
+
+      case 'payout.paid':
+        const payout = event.data.object;
+        console.log(`[Stripe] Payout completed: ${payout.id}, Amount: $${payout.amount / 100}`);
+        break;
+
+      case 'payout.failed':
+        const failedPayout = event.data.object;
+        console.error(`[Stripe] Payout failed: ${failedPayout.id}, Reason: ${failedPayout.failure_message}`);
+        break;
+
+      default:
+        console.log(`[Stripe] Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('[Stripe Webhook] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create Stripe Connect Account for Payouts
+router.post('/create-connect-account', async (req, res) => {
+  try {
+    const { email, userId, businessType } = req.body;
+
+    const account = await stripe.accounts.create({
+      type: 'express',
+      country: 'US',
+      email: email,
+      capabilities: {
+        transfers: { requested: true }
+      },
+      metadata: { userId }
+    });
+
+    console.log(`[Stripe Connect] Account created: ${account.id} for ${email}`);
+
+    res.json({
+      accountId: account.id,
+      email,
+      status: 'created',
+      needsOnboarding: true
+    });
+  } catch (error) {
+    console.error('[Stripe Connect] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Initiate Payout via Stripe
+router.post('/initiate-payout', async (req, res) => {
+  try {
+    const { amount, currency, connectedAccountId, description } = req.body;
+
+    if (!amount || amount < 100) {
+      return res.status(400).json({ error: 'Minimum payout amount is $1.00' });
+    }
+
+    // Create a payout to the connected account
+    const payout = await stripe.payouts.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: currency || 'usd',
+      description: description || 'Affiliate commission payout',
+      metadata: {
+        connectedAccountId,
+        initiatedAt: new Date().toISOString()
+      }
+    });
+
+    console.log(`[Stripe Payout] Initiated: ${payout.id}, Amount: $${amount}`);
+
+    res.json({
+      payoutId: payout.id,
+      amount,
+      currency: payout.currency,
+      status: payout.status,
+      arrivalDate: new Date(payout.arrival_date * 1000).toISOString(),
+      created: new Date(payout.created * 1000).toISOString()
+    });
+  } catch (error) {
+    console.error('[Stripe Payout] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
