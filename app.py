@@ -121,7 +121,13 @@ def revenue_api():
 
 @app.route('/api/trigger-payout', methods=['POST'])
 def trigger_payout():
-    """Trigger automatic payout for affiliates"""
+    """
+    Trigger automatic payout for affiliates
+    NOTE: This is a demo/development endpoint. In production:
+    - Authentication should be required
+    - Affiliate data should come from database
+    - Actual Stripe Connect payouts should be initiated
+    """
     try:
         data = request.get_json() if hasattr(request, 'get_json') else {}
         affiliate_id = data.get('affiliate_id', 'default_affiliate')

@@ -153,7 +153,8 @@ router.post('/auto-payout', async (req, res) => {
 
     const schedule = PAYOUT_SCHEDULE[tier];
     
-    // Simulate checking pending balance
+    // TODO: Replace with actual database query to get pending balance
+    // In production, this should query: SELECT SUM(commission) FROM affiliate_earnings WHERE affiliate_id = ? AND status = 'pending'
     const pendingBalance = Math.floor(Math.random() * 5000) + 100;
     
     if (pendingBalance < schedule.minimumPayout) {
@@ -166,8 +167,8 @@ router.post('/auto-payout', async (req, res) => {
       });
     }
 
-    // Simulate Stripe payout processing
-    // In production, this would call: stripe.payouts.create()
+    // TODO: Replace with actual Stripe payout API call
+    // In production, this should call: const payout = await stripe.payouts.create({ amount, currency: 'usd' })
     const payoutId = `po_${crypto.randomBytes(12).toString('hex')}`;
     
     console.log(`[Auto Payout] Processing for affiliate ${affiliateId}, Tier: ${tier}, Amount: $${pendingBalance}`);
@@ -193,7 +194,8 @@ router.post('/auto-payout', async (req, res) => {
 router.get('/payout-history/:affiliateId', (req, res) => {
   const { affiliateId } = req.params;
   
-  // Simulate payout history
+  // TODO: Replace with actual database query to get payout history
+  // In production, this should query: SELECT * FROM payouts WHERE affiliate_id = ? ORDER BY created_at DESC
   const history = [
     {
       payoutId: `po_${crypto.randomBytes(12).toString('hex')}`,

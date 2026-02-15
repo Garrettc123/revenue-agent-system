@@ -242,10 +242,15 @@ router.post('/initiate-payout', async (req, res) => {
   try {
     const { amount, currency, connectedAccountId, description } = req.body;
 
+    // NOTE: This is a general $1 minimum. Tier-based minimums should be enforced at the application layer before calling this endpoint
     if (!amount || amount < 1) {
       return res.status(400).json({ error: 'Minimum payout amount is $1.00' });
     }
 
+    // TODO: In production, specify the connected account using Stripe-Account header or use transfers
+    // Example: stripe.payouts.create({ amount, currency }, { stripeAccount: connectedAccountId })
+    // Or use: stripe.transfers.create({ amount, currency, destination: connectedAccountId })
+    
     // Create a payout to the connected account
     const payout = await stripe.payouts.create({
       amount: Math.round(amount * 100), // Convert to cents
