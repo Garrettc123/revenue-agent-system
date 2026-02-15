@@ -104,7 +104,7 @@ Run the test suite:
 ```bash
 npm test
 # or
-python -m pytest tests/ -v
+pytest tests/ -v
 ```
 
 Run with coverage:

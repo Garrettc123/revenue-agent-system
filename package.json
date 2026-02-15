@@ -4,8 +4,8 @@
   "description": "Full-stack revenue agent system with multi-stream monetization",
   "main": "app.py",
   "scripts": {
-    "test": "python -m pytest tests/ -v",
-    "test:python": "python -m pytest tests/ -v --cov=. --cov-report=term-missing",
+    "test": "pytest tests/ -v",
+    "test:python": "pytest tests/ -v --cov=. --cov-report=term-missing",
     "install:python": "pip install -r requirements.txt",
     "start": "gunicorn app:app --bind 0.0.0.0:5000 --workers 2 --timeout 120",
     "dev": "python app.py",

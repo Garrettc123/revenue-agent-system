@@ -17,7 +17,7 @@ echo ""
 
 # Step 2: Run tests
 echo "🧪 Running test suite..."
-python -m pytest tests/ -v
+pytest tests/ -v
 echo "✅ All tests passed"
 echo ""
 
@@ -83,5 +83,5 @@ echo ""
 echo "Commands:"
 echo "  Development: npm run dev  or  python app.py"
 echo "  Production:  npm start    or  gunicorn app:app"
-echo "  Tests:       npm test     or  python -m pytest tests/"
+echo "  Tests:       npm test     or  pytest tests/"
 echo ""
