@@ -212,23 +212,50 @@ pytest
 
 ## 💰 Revenue Stream Activation
 
-### 1. Configure Stripe
-1. Get API keys from https://dashboard.stripe.com/apikeys
-2. Add to `.env` file
-3. Set up webhooks: `https://your-domain.com/webhooks/stripe`
-4. Add webhook secret to `.env`
+### 1. Configure Stripe for Auto-Revenue Retrieval
+The system automatically fetches real-time revenue data from Stripe.
 
-### 2. Test Payment Flow
+1. Get API keys from https://dashboard.stripe.com/apikeys
+2. Add to `.env` file:
+   ```bash
+   STRIPE_SECRET_KEY=sk_test_your_key_here
+   STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+   ```
+3. Set up webhooks at: `https://your-domain.com/webhooks/stripe`
+4. Select these webhook events:
+   - `payment_intent.succeeded`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `charge.succeeded`
+   - `invoice.payment_succeeded`
+5. Copy the webhook signing secret and add to `.env`
+
+### 2. Test Auto-Revenue Endpoints
+
 ```bash
-curl -X POST http://localhost:8000/api/checkout \
+# Check revenue data (auto-fetches from Stripe)
+curl http://localhost:5000/api/revenue
+
+# Manually trigger revenue sync
+curl -X POST http://localhost:5000/api/revenue/sync
+
+# Test webhook endpoint
+curl -X POST http://localhost:5000/webhooks/stripe \
   -H "Content-Type: application/json" \
-  -d '{"plan": "basic", "amount": 999}'
+  -d '{"type": "payment_intent.succeeded", "data": {"object": {"amount": 5000}}}'
 ```
 
-### 3. Monitor Revenue
+### 3. Access Live Dashboard
+- Dashboard: http://localhost:5000
+- Auto-refreshes every 5 seconds with real Stripe data
+- Shows MRR, customer count, and system status
+
+### 4. Monitor Revenue
 - Grafana: http://localhost:3000
 - Check dashboard: "Revenue Metrics"
 - Slack notifications configured via webhook
+- Real-time webhook events logged in application logs
 
 ## 📈 Monitoring & Observability
 
