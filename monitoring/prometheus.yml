@@ -28,17 +28,16 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
   
-  # PostgreSQL (if exporter is added)
-  - job_name: 'postgres'
-    static_configs:
-      - targets: ['postgres:5432']
-    
-  # Redis (if exporter is added)
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis:6379']
-    
-  # MongoDB (if exporter is added)
-  - job_name: 'mongodb'
-    static_configs:
-      - targets: ['mongodb:27017']
+  # Database exporters (requires separate exporter containers)
+  # Uncomment and configure when exporters are added:
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #   
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #   
+  # - job_name: 'mongodb'
+  #   static_configs:
+  #     - targets: ['mongodb-exporter:9216']
