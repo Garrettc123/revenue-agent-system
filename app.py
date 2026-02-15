@@ -4,6 +4,26 @@ from datetime import datetime
 
 app = Flask(__name__)
 
+# Revenue configuration constants
+MRR = 5000
+CUSTOMERS = 12
+ARR = 60000
+
+# Wealth calculation constants
+LIQUID_FUNDS_MONTHS = 3  # Months of MRR kept as liquid funds
+EMERGENCY_RESERVE_MONTHS = 6  # Recommended emergency reserve in months
+IMMEDIATELY_ACCESSIBLE_MONTHS = 2  # Immediately accessible emergency funds in months
+CURRENT_RESERVE_MONTHS = 4  # Current emergency fund balance in months
+
+# Health score calculation
+HEALTH_SCORE_MAX = 100
+HEALTH_EXCELLENT_THRESHOLD = 80
+HEALTH_GOOD_THRESHOLD = 60
+HEALTH_ADEQUATE_THRESHOLD = 40
+
+# Time calculations
+DAYS_PER_MONTH = 30
+
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
@@ -107,35 +127,31 @@ def dashboard():
 @app.route('/api/revenue')
 def revenue_api():
     return jsonify({
-        "mrr": 5000,
-        "customers": 12,
-        "arr": 60000,
+        "mrr": MRR,
+        "customers": CUSTOMERS,
+        "arr": ARR,
         "timestamp": datetime.utcnow().isoformat()
     })
 
 @app.route('/api/masterwealth')
 def masterwealth_api():
     """Calculate total wealth across all revenue streams"""
-    mrr = 5000
-    customers = 12
-    arr = 60000
-    
     # Calculate wealth components
-    liquid_funds = mrr * 3  # 3 months of MRR as liquid funds
-    emergency_reserve = mrr * 6  # 6 months emergency fund
-    total_wealth = arr + liquid_funds + emergency_reserve
+    liquid_funds = MRR * LIQUID_FUNDS_MONTHS
+    emergency_reserve = MRR * EMERGENCY_RESERVE_MONTHS
+    total_wealth = ARR + liquid_funds + emergency_reserve
     
-    # Revenue projections
-    projection_30d = mrr * 1
-    projection_60d = mrr * 2
-    projection_90d = mrr * 3
+    # Revenue projections (monthly intervals)
+    projection_30d = MRR * 1  # 1 month
+    projection_60d = MRR * 2  # 2 months
+    projection_90d = MRR * 3  # 3 months
     
     return jsonify({
         "total_wealth": total_wealth,
         "liquid_funds": liquid_funds,
         "emergency_reserve": emergency_reserve,
-        "arr": arr,
-        "mrr": mrr,
+        "arr": ARR,
+        "mrr": MRR,
         "projections": {
             "30_days": projection_30d,
             "60_days": projection_60d,
@@ -147,22 +163,20 @@ def masterwealth_api():
 @app.route('/api/emergency-funds')
 def emergency_funds_api():
     """Get emergency fund status and availability"""
-    mrr = 5000
-    
     # Calculate emergency fund metrics
-    immediately_accessible = mrr * 2  # 2 months worth immediately accessible
-    emergency_reserve = mrr * 6  # 6 months recommended reserve
-    current_reserve = mrr * 4  # Current emergency fund balance
+    immediately_accessible = MRR * IMMEDIATELY_ACCESSIBLE_MONTHS
+    emergency_reserve = MRR * EMERGENCY_RESERVE_MONTHS
+    current_reserve = MRR * CURRENT_RESERVE_MONTHS
     
-    # Calculate health score (0-100)
-    health_score = min(100, int((current_reserve / emergency_reserve) * 100))
+    # Calculate health score (0-100 based on current vs recommended reserve)
+    health_score = min(HEALTH_SCORE_MAX, int((current_reserve / emergency_reserve) * HEALTH_SCORE_MAX))
     
-    # Determine status
-    if health_score >= 80:
+    # Determine status based on health score thresholds
+    if health_score >= HEALTH_EXCELLENT_THRESHOLD:
         status = "excellent"
-    elif health_score >= 60:
+    elif health_score >= HEALTH_GOOD_THRESHOLD:
         status = "good"
-    elif health_score >= 40:
+    elif health_score >= HEALTH_ADEQUATE_THRESHOLD:
         status = "adequate"
     else:
         status = "low"
@@ -173,7 +187,7 @@ def emergency_funds_api():
         "recommended_reserve": emergency_reserve,
         "health_score": health_score,
         "status": status,
-        "days_of_coverage": int((current_reserve / mrr) * 30),
+        "days_of_coverage": int((current_reserve / MRR) * DAYS_PER_MONTH),
         "timestamp": datetime.utcnow().isoformat()
     })
 
