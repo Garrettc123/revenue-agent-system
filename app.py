@@ -65,33 +65,28 @@ def fetch_stripe_revenue():
                 "configured": False
             }
         
-        # Fetch active subscriptions
-        subscriptions = stripe.Subscription.list(
-            status='active',
-            limit=100
-        )
-        
-        # Calculate MRR from active subscriptions
+        # Fetch all active subscriptions with auto-pagination
         mrr = 0
-        for sub in subscriptions.data:
-            for item in sub['items']['data']:
-                # Get price amount (in cents) and convert to dollars
-                price = stripe.Price.retrieve(item['price']['id'])
+        for subscription in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
+            for item in subscription['items']['data']:
+                # Use embedded price data to avoid N+1 queries
+                price = item['price']
                 amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
                 
                 # Normalize to monthly amount
                 if price['recurring']['interval'] == 'year':
                     amount = amount / 12
-                elif price['recurring']['interval'] == 'month':
-                    amount = amount
+                # Monthly is already correct, no modification needed
                 
                 mrr += amount
         
-        # Get customer count
-        customers = stripe.Customer.list(limit=1)
-        customer_count = customers.get('total_count', 0)
+        # Get accurate customer count
+        customer_count = 0
+        for _ in stripe.Customer.list(limit=100).auto_paging_iter():
+            customer_count += 1
         
-        # Fetch total revenue from successful charges
+        # Fetch total revenue from successful charges (last 100 for performance)
+        # For production, consider limiting to a specific date range
         charges = stripe.Charge.list(limit=100)
         total_revenue = sum(
             charge['amount'] / 100 
