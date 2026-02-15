@@ -131,6 +131,9 @@ def wealth_index():
     Unprecedented Wealth Index - Comprehensive wealth metrics across all revenue streams
     Calculates aggregate customer lifetime value with compounding growth projections
     """
+    # Constants
+    ANNUAL_GROWTH_RATE = 0.235
+    
     # Base revenue streams (monthly)
     saas_subscriptions = 100000
     api_usage = 50000
@@ -143,25 +146,27 @@ def wealth_index():
     # Customer metrics
     active_customers = 500
     avg_lifetime_months = 36
-    churn_rate = 0.021
     
     # Calculate lifetime value per customer across all streams
-    customer_ltv = 8500
+    # LTV = (average monthly revenue per customer) * (average lifetime months)
+    avg_monthly_per_customer = total_monthly / active_customers
+    customer_ltv = round(avg_monthly_per_customer * avg_lifetime_months, 0)
     
     # Unprecedented Wealth Index components
     total_customer_lifetime_value = active_customers * customer_ltv
     
-    # 5-year compounding projection (23.5% annual growth)
+    # 5-year compounding projection
+    growth_multiplier = 1 + ANNUAL_GROWTH_RATE
     year_1 = total_monthly * 12
-    year_2 = year_1 * 1.235
-    year_3 = year_2 * 1.235
-    year_4 = year_3 * 1.235
-    year_5 = year_4 * 1.235
+    year_2 = year_1 * growth_multiplier
+    year_3 = year_2 * growth_multiplier
+    year_4 = year_3 * growth_multiplier
+    year_5 = year_4 * growth_multiplier
     
     five_year_wealth = year_1 + year_2 + year_3 + year_4 + year_5
     
     # Wealth velocity (revenue acceleration)
-    monthly_velocity = total_monthly * 0.235 / 12  # Monthly growth
+    monthly_velocity = total_monthly * ANNUAL_GROWTH_RATE / 12
     
     # Unprecedented Wealth Index (normalized score)
     wealth_index = round((total_customer_lifetime_value + five_year_wealth) / 1000000, 2)
@@ -182,8 +187,8 @@ def wealth_index():
         },
         "growth_metrics": {
             "monthly_velocity": round(monthly_velocity, 2),
-            "annual_growth_rate": "23.5%",
-            "customer_ltv": customer_ltv,
+            "annual_growth_rate": f"{ANNUAL_GROWTH_RATE * 100}%",
+            "customer_ltv": int(customer_ltv),
             "active_customers": active_customers
         },
         "wealth_milestones": {
