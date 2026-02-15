@@ -20,7 +20,7 @@ check_dependencies() {
         exit 1
     fi
     
-    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null 2>&1; then
         echo "❌ Docker Compose is not installed. Please install Docker Compose first."
         exit 1
     fi
@@ -57,13 +57,20 @@ deploy_local() {
     echo "🏠 Deploying locally..."
     echo ""
     
+    # Determine docker compose command
+    if command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE="docker-compose"
+    else
+        DOCKER_COMPOSE="docker compose"
+    fi
+    
     # Build and start services
     echo "🔨 Building Docker images..."
-    docker-compose build
+    $DOCKER_COMPOSE build
     
     echo ""
     echo "🚀 Starting services..."
-    docker-compose up -d
+    $DOCKER_COMPOSE up -d
     
     echo ""
     echo "⏳ Waiting for services to be healthy..."
@@ -73,12 +80,12 @@ deploy_local() {
     if curl -f http://localhost:8000/health &> /dev/null; then
         echo "✅ Application is healthy!"
     else
-        echo "⚠️  Application may not be fully started yet. Check logs with: docker-compose logs -f"
+        echo "⚠️  Application may not be fully started yet. Check logs with: $DOCKER_COMPOSE logs -f"
     fi
     
     echo ""
     echo "📊 Service Status:"
-    docker-compose ps
+    $DOCKER_COMPOSE ps
     
     echo ""
     echo "🎉 Deployment complete!"
@@ -90,9 +97,9 @@ deploy_local() {
     echo "   • Prometheus:        http://localhost:9090"
     echo ""
     echo "📝 Useful commands:"
-    echo "   • View logs:         docker-compose logs -f"
-    echo "   • Stop services:     docker-compose down"
-    echo "   • Restart:           docker-compose restart"
+    echo "   • View logs:         $DOCKER_COMPOSE logs -f"
+    echo "   • Stop services:     $DOCKER_COMPOSE down"
+    echo "   • Restart:           $DOCKER_COMPOSE restart"
     echo ""
 }
 
