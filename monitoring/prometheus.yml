@@ -1,0 +1,44 @@
+# Prometheus Configuration for Revenue Agent System
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'revenue-agent-monitor'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Load rules once and periodically evaluate them
+rule_files:
+  # - "alerts.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Revenue Agent Application
+  - job_name: 'revenue-app'
+    static_configs:
+      - targets: ['revenue-app:8000']
+    metrics_path: '/metrics'
+    
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+  
+  # PostgreSQL (if exporter is added)
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres:5432']
+    
+  # Redis (if exporter is added)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    
+  # MongoDB (if exporter is added)
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongodb:27017']
