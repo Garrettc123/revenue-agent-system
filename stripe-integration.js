@@ -211,7 +211,7 @@ router.post('/webhook', async (req, res) => {
 // Create Stripe Connect Account for Payouts
 router.post('/create-connect-account', async (req, res) => {
   try {
-    const { email, userId, businessType } = req.body;
+    const { email, userId } = req.body;
 
     const account = await stripe.accounts.create({
       type: 'express',
@@ -242,7 +242,7 @@ router.post('/initiate-payout', async (req, res) => {
   try {
     const { amount, currency, connectedAccountId, description } = req.body;
 
-    if (!amount || amount < 100) {
+    if (!amount || amount < 1) {
       return res.status(400).json({ error: 'Minimum payout amount is $1.00' });
     }
 

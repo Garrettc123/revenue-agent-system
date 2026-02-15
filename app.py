@@ -64,11 +64,12 @@ DASHBOARD_HTML = """
             const statusDiv = document.getElementById('payout-status');
             statusDiv.innerHTML = '<div class="payout-status">Processing payout...</div>';
             
+            // Demo: In production, these values would come from actual affiliate data
             fetch('/api/trigger-payout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    affiliate_id: 'user_001',
+                    affiliate_id: 'demo_affiliate_001',
                     tier: 'silver',
                     amount: 250
                 })
@@ -126,13 +127,23 @@ def trigger_payout():
         affiliate_id = data.get('affiliate_id', 'default_affiliate')
         tier = data.get('tier', 'bronze')
         
+        # Tier-based minimum payout amounts
+        PAYOUT_MINIMUMS = {
+            'bronze': 50,
+            'silver': 100,
+            'gold': 200,
+            'platinum': 500
+        }
+        
+        minimum_required = PAYOUT_MINIMUMS.get(tier, 50)
+        
         # Simulate payout processing
         payout_amount = data.get('amount', 0)
-        if payout_amount < 50:
+        if payout_amount < minimum_required:
             return jsonify({
                 "status": "pending",
-                "message": "Minimum payout amount not met",
-                "minimum_required": 50,
+                "message": f"Minimum payout amount not met for {tier} tier",
+                "minimum_required": minimum_required,
                 "current_balance": payout_amount
             }), 400
         
