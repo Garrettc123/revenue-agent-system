@@ -134,4 +134,107 @@ router.get('/commissions', (req, res) => {
   });
 });
 
+// Auto Payout Configuration
+const PAYOUT_SCHEDULE = {
+  bronze: { frequency: 'monthly', minimumPayout: 50 },
+  silver: { frequency: 'bi-weekly', minimumPayout: 100 },
+  gold: { frequency: 'weekly', minimumPayout: 200 },
+  platinum: { frequency: 'daily', minimumPayout: 500 }
+};
+
+// Trigger Automatic Payout
+router.post('/auto-payout', async (req, res) => {
+  try {
+    const { affiliateId, tier } = req.body;
+
+    if (!tier || !PARTNER_TIERS[tier]) {
+      return res.status(400).json({ error: 'Invalid partner tier' });
+    }
+
+    const schedule = PAYOUT_SCHEDULE[tier];
+    
+    // TODO: Replace with actual database query to get pending balance
+    // In production, this should query: SELECT SUM(commission) FROM affiliate_earnings WHERE affiliate_id = ? AND status = 'pending'
+    const pendingBalance = Math.floor(Math.random() * 5000) + 100;
+    
+    if (pendingBalance < schedule.minimumPayout) {
+      return res.json({
+        status: 'pending',
+        message: `Payout requires minimum $${schedule.minimumPayout}`,
+        currentBalance: pendingBalance,
+        minimumRequired: schedule.minimumPayout,
+        nextPayoutDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+      });
+    }
+
+    // TODO: Replace with actual Stripe payout API call
+    // In production, this should call: const payout = await stripe.payouts.create({ amount, currency: 'usd' })
+    const payoutId = `po_${crypto.randomBytes(12).toString('hex')}`;
+    
+    console.log(`[Auto Payout] Processing for affiliate ${affiliateId}, Tier: ${tier}, Amount: $${pendingBalance}`);
+
+    res.json({
+      status: 'success',
+      payoutId,
+      affiliateId,
+      amount: pendingBalance,
+      tier,
+      frequency: schedule.frequency,
+      processedAt: new Date().toISOString(),
+      estimatedArrival: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      message: 'Payout initiated successfully'
+    });
+  } catch (error) {
+    console.error('[Auto Payout] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Payout History
+router.get('/payout-history/:affiliateId', (req, res) => {
+  const { affiliateId } = req.params;
+  
+  // TODO: Replace with actual database query to get payout history
+  // In production, this should query: SELECT * FROM payouts WHERE affiliate_id = ? ORDER BY created_at DESC
+  const history = [
+    {
+      payoutId: `po_${crypto.randomBytes(12).toString('hex')}`,
+      amount: 1250.50,
+      status: 'paid',
+      processedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      arrivedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      payoutId: `po_${crypto.randomBytes(12).toString('hex')}`,
+      amount: 875.25,
+      status: 'paid',
+      processedAt: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+      arrivedAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString()
+    },
+    {
+      payoutId: `po_${crypto.randomBytes(12).toString('hex')}`,
+      amount: 1500.00,
+      status: 'in_transit',
+      processedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+      expectedArrival: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString()
+    }
+  ];
+
+  res.json({
+    affiliateId,
+    payoutHistory: history,
+    totalPaid: history.reduce((sum, p) => sum + (p.status === 'paid' ? p.amount : 0), 0),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Schedule Configuration Endpoint
+router.get('/payout-schedule', (req, res) => {
+  res.json({
+    schedule: PAYOUT_SCHEDULE,
+    tiers: PARTNER_TIERS,
+    timestamp: new Date().toISOString()
+  });
+});
+
 module.exports = router;
