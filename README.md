@@ -12,6 +12,7 @@ The Revenue Agent System is a production-grade autonomous platform that aggregat
 
 ## Features
 
+- **Master Conductor** — Central orchestration system for all revenue streams ([docs](./MASTER_CONDUCTOR.md))
 - **Affiliate System** — Automated affiliate tracking and commission management
 - **Content Monetization** — AI-powered content generation and monetization pipeline
 - **Services Marketplace** — Multi-vendor service listing and transaction processing
@@ -51,6 +52,31 @@ python app.py
 # Or with Docker
 docker-compose up
 ```
+
+## Master Conductor API
+
+The Master Conductor provides unified API endpoints for all revenue operations:
+
+```bash
+# Get comprehensive dashboard
+curl http://localhost:5000/api/conductor/dashboard
+
+# Check system health
+curl http://localhost:5000/api/conductor/health
+
+# Get financial summary
+curl http://localhost:5000/api/conductor/financial-summary
+
+# Get revenue forecast
+curl http://localhost:5000/api/conductor/forecast
+
+# Orchestrate payouts
+curl -X POST http://localhost:5000/api/conductor/orchestrate-payout \
+  -H "Content-Type: application/json" \
+  -d '{"tier": "silver"}'
+```
+
+See [MASTER_CONDUCTOR.md](./MASTER_CONDUCTOR.md) for complete API documentation.
 
 ## Environment Variables
 
