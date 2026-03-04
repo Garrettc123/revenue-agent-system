@@ -1,8 +1,12 @@
 from flask import Flask, render_template_string, jsonify, request
 import os
 from datetime import datetime
+from master_conductor import get_conductor
 
 app = Flask(__name__)
+
+# Initialize Master Conductor
+conductor = get_conductor()
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -168,6 +172,50 @@ def trigger_payout():
 @app.route('/health')
 def health():
     return jsonify({"status": "healthy", "service": "revenue-agent"})
+
+# Master Conductor API Endpoints
+
+@app.route('/api/conductor/dashboard')
+def conductor_dashboard():
+    """
+    Master dashboard aggregating all revenue streams
+    """
+    return jsonify(conductor.get_master_dashboard())
+
+@app.route('/api/conductor/financial-summary')
+def conductor_financial_summary():
+    """
+    Financial summary with revenue, expenses, and profit
+    """
+    return jsonify(conductor.get_financial_summary())
+
+@app.route('/api/conductor/forecast')
+def conductor_forecast():
+    """
+    Revenue forecast for next 12 months
+    """
+    months = request.args.get('months', 12, type=int)
+    return jsonify(conductor.get_revenue_forecast(months))
+
+@app.route('/api/conductor/health')
+def conductor_health():
+    """
+    System health check with detailed status
+    """
+    return jsonify(conductor.get_system_health())
+
+@app.route('/api/conductor/orchestrate-payout', methods=['POST'])
+def conductor_orchestrate_payout():
+    """
+    Orchestrate automatic payout cycle across all revenue streams
+    """
+    try:
+        data = request.get_json() if hasattr(request, 'get_json') else {}
+        tier = data.get('tier', None)
+        result = conductor.orchestrate_payout_cycle(tier)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
