@@ -1,9 +1,11 @@
 from flask import Flask, render_template_string, jsonify, request
 import os
+import stripe
 from datetime import datetime
 from master_conductor import get_conductor
 
 app = Flask(__name__)
+stripe.api_key = os.getenv('STRIPE_SECRET_KEY', '')
 
 # Initialize Master Conductor
 conductor = get_conductor()
@@ -169,9 +171,139 @@ def trigger_payout():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/checkout/success')
+def checkout_success():
+    session_id = request.args.get('session_id', '')
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Payment Approved</title>
+    <style>
+        body { background: #1a1a2e; color: #00ff41; font-family: monospace; padding: 40px; text-align: center; }
+        .card { background: #16213e; padding: 40px; border-radius: 8px; display: inline-block; }
+        .amount { font-size: 48px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="amount">✓</div>
+        <h1>Session Approved</h1>
+        <p>Your checkout session has been approved successfully.</p>
+        <p>Session ID: {{ session_id }}</p>
+        <p><a href="/" style="color:#00ff41;">Return to Dashboard</a></p>
+    </div>
+</body>
+</html>
+""", session_id=session_id)
+
+
+@app.route('/checkout/cancel')
+def checkout_cancel():
+    return render_template_string("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Checkout Cancelled</title>
+    <style>
+        body { background: #1a1a2e; color: #ff4141; font-family: monospace; padding: 40px; text-align: center; }
+        .card { background: #16213e; padding: 40px; border-radius: 8px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>✗ Checkout Cancelled</h1>
+        <p>Your checkout session was cancelled.</p>
+        <p><a href="/" style="color:#00ff41;">Return to Dashboard</a></p>
+    </div>
+</body>
+</html>
+""")
+
+
+@app.route('/api/checkout-session', methods=['POST'])
+def create_checkout_session():
+    """
+    Create a Stripe Checkout Session for a subscription tier.
+    All sessions are processed and approved upon completion via webhook.
+    """
+    try:
+        data = request.get_json() or {}
+        tier = data.get('tier', 'starter')
+        email = data.get('email', '')
+        user_id = data.get('user_id', '')
+
+        tier_price_ids = {
+            'starter': os.getenv('STRIPE_STARTER_PRICE_ID', ''),
+            'professional': os.getenv('STRIPE_PROFESSIONAL_PRICE_ID', ''),
+            'enterprise': os.getenv('STRIPE_ENTERPRISE_PRICE_ID', '')
+        }
+
+        if tier not in tier_price_ids:
+            return jsonify({"status": "error", "message": "Invalid tier"}), 400
+
+        price_id = tier_price_ids[tier]
+        if not price_id:
+            return jsonify({
+                "status": "error",
+                "message": f"Price ID not configured for tier: {tier}"
+            }), 400
+
+        app_url = os.getenv('APP_URL', 'http://localhost:5000')
+        session_params = {
+            'mode': 'subscription',
+            'line_items': [{'price': price_id, 'quantity': 1}],
+            'success_url': f"{app_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+            'cancel_url': f"{app_url}/checkout/cancel",
+            'metadata': {'user_id': user_id, 'tier': tier}
+        }
+        if email:
+            session_params['customer_email'] = email
+
+        session = stripe.checkout.Session.create(**session_params)
+
+        return jsonify({
+            "status": "success",
+            "sessionId": session.id,
+            "url": session.url,
+            "tier": tier,
+            "paymentStatus": session.payment_status,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/checkout-session/<session_id>', methods=['GET'])
+def get_checkout_session(session_id):
+    """
+    Retrieve a Stripe Checkout Session and return its approval status.
+    A session is approved when payment_status is 'paid' or status is 'complete'.
+    """
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        approved = session.status == 'complete' and session.payment_status == 'paid'
+
+        return jsonify({
+            "status": "success",
+            "sessionId": session.id,
+            "sessionStatus": session.status,
+            "paymentStatus": session.payment_status,
+            "approved": approved,
+            "tier": session.metadata.get('tier') if session.metadata else None,
+            "amountTotal": session.amount_total / 100 if session.amount_total else None,
+            "currency": session.currency,
+            "customerEmail": session.customer_email,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route('/health')
 def health():
     return jsonify({"status": "healthy", "service": "revenue-agent"})
+
 
 # Master Conductor API Endpoints
 
