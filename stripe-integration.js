@@ -133,6 +133,79 @@ router.get('/pricing', (req, res) => {
   });
 });
 
+// Create Checkout Session
+router.post('/checkout-session', async (req, res) => {
+  try {
+    const { email, tier, userId } = req.body;
+
+    if (!SUBSCRIPTION_TIERS[tier]) {
+      return res.status(400).json({ error: 'Invalid tier' });
+    }
+
+    const sessionParams = {
+      mode: 'subscription',
+      line_items: [{
+        price: SUBSCRIPTION_TIERS[tier].stripePriceId,
+        quantity: 1
+      }],
+      success_url: `${process.env.APP_URL || 'http://localhost:5000'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL || 'http://localhost:5000'}/checkout/cancel`,
+      metadata: { userId: userId || '', tier }
+    };
+
+    if (email) {
+      sessionParams.customer_email = email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    console.log(`[Stripe Checkout] Session created: ${session.id}, Tier: ${tier}`);
+
+    res.json({
+      sessionId: session.id,
+      url: session.url,
+      tier,
+      status: session.status,
+      paymentStatus: session.payment_status
+    });
+  } catch (error) {
+    console.error('[Stripe Checkout] Error creating session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Retrieve and Approve Checkout Session
+router.get('/checkout-session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription', 'customer']
+    });
+
+    const approved = session.status === 'complete' && session.payment_status === 'paid';
+
+    console.log(`[Stripe Checkout] Session retrieved: ${sessionId}, Approved: ${approved}`);
+
+    res.json({
+      sessionId: session.id,
+      status: session.status,
+      paymentStatus: session.payment_status,
+      approved,
+      tier: session.metadata && session.metadata.tier,
+      customerId: session.customer && session.customer.id,
+      subscriptionId: session.subscription && session.subscription.id,
+      amountTotal: session.amount_total ? session.amount_total / 100 : null,
+      currency: session.currency,
+      customerEmail: session.customer_email,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Stripe Checkout] Error retrieving session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Billing Portal
 router.post('/billing-portal', async (req, res) => {
   try {
@@ -185,6 +258,22 @@ router.post('/webhook', async (req, res) => {
       case 'customer.subscription.updated':
         const subscription = event.data.object;
         console.log(`[Stripe] Subscription ${event.type}: ${subscription.id}`);
+        break;
+
+      case 'checkout.session.completed':
+        const completedSession = event.data.object;
+        console.log(`[Stripe] Checkout session approved: ${completedSession.id}, Payment status: ${completedSession.payment_status}`);
+        // All completed checkout sessions are approved - trigger any post-approval logic here
+        break;
+
+      case 'checkout.session.async_payment_succeeded':
+        const asyncSession = event.data.object;
+        console.log(`[Stripe] Checkout session async payment approved: ${asyncSession.id}`);
+        break;
+
+      case 'checkout.session.async_payment_failed':
+        const failedSession = event.data.object;
+        console.error(`[Stripe] Checkout session payment failed: ${failedSession.id}`);
         break;
 
       case 'payout.paid':
