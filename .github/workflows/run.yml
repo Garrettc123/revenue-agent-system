@@ -1,0 +1,47 @@
+name: Run & Test
+
+on:
+  push:
+    branches: [ main, "copilot/**" ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run Application Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install Flask==3.1.2 stripe==14.1.0 gunicorn==25.0.1 requests==2.32.5 pytest==9.0.2
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Start app and verify health endpoint
+        run: |
+          python app.py &
+          APP_PID=$!
+          echo "Waiting for app to be ready..."
+          for i in $(seq 1 10); do
+            if curl --silent --fail http://localhost:5000/health; then
+              echo "App is healthy!"
+              break
+            fi
+            echo "Attempt $i: app not ready, retrying in 2s..."
+            sleep 2
+          done
+          kill $APP_PID
