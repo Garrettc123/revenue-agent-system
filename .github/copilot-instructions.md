@@ -1,384 +1,430 @@
-# Revenue Agent System - Copilot Instructions
+# GitHub Copilot Instructions for Revenue Agent System
 
-## Project Overview
+## Repository Overview
 
-The Revenue Agent System is a comprehensive multi-stream revenue management platform that integrates various monetization strategies into a unified system. The project handles:
+This is a **Revenue Agent System** - a comprehensive revenue tracking and monitoring platform that manages multiple revenue streams including:
 
-- **Subscription Management**: Stripe-based SaaS subscriptions with tiered pricing
-- **Affiliate/Referral Programs**: Commission tracking and automated payouts
-- **Content Monetization**: Creator revenue streams and content licensing
-- **Services Marketplace**: B2B service offerings and API billing
-- **Revenue Analytics**: Real-time dashboard with metrics tracking
+- SaaS subscriptions via Stripe
+- Affiliate commissions and payouts
+- Content monetization
+- Services marketplace
+- API usage billing
+
+The system provides a real-time dashboard for monitoring revenue metrics, customer data, and financial health indicators.
 
 ## Technology Stack
 
 ### Backend
-- **Python 3.11+** with Flask 3.x for web application
-- **gunicorn** for production WSGI server (2 workers, 120s timeout)
-- **PostgreSQL** for relational data storage
-- **MongoDB** for document storage
-- **Redis** for caching and session management
+- **Python 3.11** with Flask 3.1.2
+- **Gunicorn** for production WSGI server
+- **Stripe API** for payment processing
+- PostgreSQL and MongoDB for data storage (configured in docker-compose)
 
-### Frontend/API
-- **Node.js** with Express.js for API routes and integrations
-- **JavaScript** (ES6+) for revenue modules
-- **HTML templates** embedded in Flask via `render_template_string`
+### Frontend/APIs
+- **Express.js** routers for modular API endpoints
+- **Node.js** for JavaScript-based services
+- Vanilla JavaScript for dashboard UI (no framework)
 
-### Payment & Integration
-- **Stripe** for payment processing and subscriptions
-- **Webhooks** for real-time event handling
+### Infrastructure
+- **Docker** for containerization
+- **Docker Compose** for local development
+- Render/Heroku for production deployment (via Procfile)
 
-### Deployment & Infrastructure
-- **Docker** and **docker-compose** for containerization
-- **Render.com** or **Railway** for production hosting
-- **Prometheus** and **Grafana** for monitoring
-
-## Coding Standards & Conventions
-
-### Python (Flask Application)
-
-#### General Guidelines
-- Use **Python 3.11+** features and type hints where appropriate
-- Follow **PEP 8** style guidelines for Python code
-- Keep functions focused and single-purpose
-- Use environment variables for configuration (via `os.environ.get()`)
-
-#### Flask Patterns
-- Use `jsonify()` for JSON responses
-- Include error handling for all API endpoints
-- Use ISO 8601 format for timestamps (`datetime.utcnow().isoformat()`)
-- Always specify host as `0.0.0.0` for Docker compatibility
-
-#### Example Pattern
-```python
-@app.route('/api/endpoint')
-def api_endpoint():
-    return jsonify({
-        "key": "value",
-        "timestamp": datetime.utcnow().isoformat()
-    })
-```
-
-### JavaScript (Node.js/Express)
-
-#### General Guidelines
-- Use **ES6+** features (const/let, arrow functions, async/await)
-- Use **const** for immutable values, **let** for mutable ones
-- Include JSDoc-style comments for modules and complex functions
-- Use meaningful variable names (camelCase)
-
-#### Module Structure
-- Start each file with a descriptive block comment
-- Use Express Router for modular route handling
-- Export routers using `module.exports`
-- Group related endpoints logically
-
-#### Example Pattern
-```javascript
-/**
- * Module Name - Description
- * Purpose and functionality
- */
-
-const express = require('express');
-const router = express.Router();
-
-// Route definitions
-router.get('/endpoint', (req, res) => {
-  res.json({ status: 'success' });
-});
-
-module.exports = router;
-```
-
-### Environment Variables
-
-Always use environment variables for:
-- API keys and secrets (Stripe, OpenAI, etc.)
-- Database connection strings
-- Webhook URLs
-- Port configuration
-- Feature flags
-
-Reference them securely:
-```python
-# Python
-stripe_key = os.environ.get('STRIPE_SECRET_KEY')
-
-# JavaScript
-const stripeKey = process.env.STRIPE_SECRET_KEY;
-```
+### Dependencies
+Key Python packages:
+- Flask 3.1.2
+- stripe 14.1.0
+- gunicorn 25.0.1
+- requests 2.32.5
+- See `requirements.txt` for complete list
 
 ## Project Structure
 
 ```
 revenue-agent-system/
-├── app.py                      # Main Flask application
-├── stripe-integration.js       # Stripe subscription handling
-├── affiliate-system.js         # Affiliate/referral program
-├── content-monetization.js     # Content creator revenue
-├── services-marketplace.js     # B2B services marketplace
-├── revenue-dashboard.js        # Master dashboard router
+├── app.py                      # Main Flask application entry point
 ├── requirements.txt            # Python dependencies
-├── Dockerfile                  # Container configuration
+├── Procfile                    # Production deployment config (gunicorn)
+├── Dockerfile                  # Container build instructions
 ├── docker-compose.yml          # Multi-service orchestration
-├── Procfile                    # Production deployment config
-├── render.yaml                 # Render.com deployment
-├── DEPLOYMENT.md               # Complete deployment guide
-└── SECURITY.md                 # Security policy
+│
+├── revenue-dashboard.js        # Master dashboard Express router
+├── stripe-integration.js       # Stripe payment integration
+├── affiliate-system.js         # Affiliate tracking & payouts
+├── content-monetization.js     # Content revenue tracking
+├── services-marketplace.js     # Service sales tracking
+│
+├── DEPLOYMENT.md               # Comprehensive deployment guide
+├── SECURITY.md                 # Security policies
+└── render.yaml                 # Render.com deployment config
 ```
 
-## Build, Test & Deployment
+## Build, Test, and Run Commands
 
 ### Local Development
 
 ```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Run Flask application
+# Python Flask app (development)
 python app.py
 
-# Application runs on http://localhost:5000
-```
+# Production-like local run
+gunicorn app:app --bind 0.0.0.0:8000 --workers 2 --timeout 120
 
-### Docker Development
+# Docker build and run
+docker build -t revenue-agent .
+docker run -p 8000:8000 revenue-agent
 
-```bash
-# Build and start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f revenue-app
-
-# Rebuild after code changes
-docker-compose up -d --build revenue-app
+# Docker Compose (full stack)
+docker-compose up --build
 ```
 
 ### Testing
 
+⚠️ **Note**: This repository currently has no automated tests. When adding tests:
+- Use `pytest` for Python tests
+- Follow the pattern: `tests/test_*.py` for test files
+- Run with: `pytest` or `pytest -v` for verbose output
+
+### Deployment
+
 ```bash
-# Run tests (if test suite exists)
-pytest
+# Render.com (uses render.yaml)
+git push origin main
 
-# Run in Docker
-docker-compose exec revenue-app python -m pytest
+# Manual production deployment
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
 ```
 
-### Production Deployment
+## Code Style and Conventions
 
-The application is configured for deployment on:
-- **Render.com**: Uses `render.yaml` and `Procfile`
-- **Railway**: Automatic deployment via CLI
-- **Docker**: Production-ready multi-stage Dockerfile
+### Python (Flask)
 
-Production server: `gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120`
+1. **Import Organization**
+   ```python
+   from flask import Flask, render_template_string, jsonify
+   import os
+   from datetime import datetime
+   ```
 
-## Security Guidelines
+2. **API Endpoints**
+   - Use `@app.route()` decorator
+   - Return JSON with `jsonify()`
+   - Use ISO 8601 timestamps: `datetime.utcnow().isoformat()`
+   
+   ```python
+   @app.route('/api/revenue')
+   def get_revenue():
+       return jsonify({
+           'status': 'success',
+           'timestamp': datetime.utcnow().isoformat(),
+           'data': {...}
+       })
+   ```
 
-### Critical Security Practices
+3. **Configuration**
+   - Use environment variables via `os.getenv()`
+   - Define constants at top of file in UPPER_CASE
+   - Provide sensible defaults for development
 
-1. **Never commit secrets**: Use environment variables for all sensitive data
-2. **Input validation**: Validate and sanitize all user inputs
-3. **Webhook verification**: Always verify Stripe webhook signatures
-4. **HTTPS only**: Use TLS/SSL in production
-5. **Rate limiting**: Implement rate limiting for API endpoints
-6. **SQL injection prevention**: Use parameterized queries
-7. **CORS configuration**: Restrict CORS to known origins
+4. **Error Handling**
+   - Provide graceful fallbacks with mock data when external services fail
+   - Log errors appropriately
+   - Return proper HTTP status codes
 
-### Secret Management
+### JavaScript (Express Routers)
 
-- Store secrets in environment variables or secret managers
-- Use `.env` files for local development (never commit)
-- Rotate API keys and secrets regularly
-- Enable GitHub secret scanning
+1. **File Structure**
+   ```javascript
+   /**
+    * Module Name - Brief Description
+    * Detailed purpose of this module
+    */
+   
+   const express = require('express');
+   const router = express.Router();
+   
+   // Route handlers
+   router.get('/endpoint', (req, res) => {
+       // Implementation
+   });
+   
+   module.exports = router;
+   ```
 
-### Stripe Security
+2. **Naming Conventions**
+   - Use camelCase for variables and functions
+   - Use descriptive names: `monthlyRecurring`, `totalRevenue`
+   - Router files use kebab-case: `stripe-integration.js`
 
-```javascript
-// Always verify webhook signatures
-const signature = req.headers['stripe-signature'];
-const event = stripe.webhooks.constructEvent(
-  req.body, 
-  signature, 
-  process.env.STRIPE_WEBHOOK_SECRET
-);
-```
+3. **Response Format**
+   ```javascript
+   res.json({
+       status: 'operational',
+       timestamp: new Date().toISOString(),
+       data: {...}
+   });
+   ```
 
-## Common Tasks & Patterns
+4. **Comments**
+   - Use JSDoc-style block comments for module headers
+   - Add inline comments for complex business logic
+   - Explain revenue calculation formulas
 
-### Adding a New API Endpoint (Flask)
+### HTML/CSS (Inline Templates)
 
+- Embedded HTML uses inline `<style>` tags
+- Dark theme by default: background `#1a1a2e`, text `#00ff41`
+- Monospace font for dashboard aesthetics
+- Use emoji in headers: 💰, 📊, 🎯, etc.
+
+## Security Best Practices
+
+### Critical Security Rules
+
+1. **Never commit secrets or API keys** to the repository
+   - Use environment variables for all sensitive data
+   - Never hardcode: `STRIPE_SECRET_KEY`, `DATABASE_URL`, etc.
+
+2. **Stripe Webhook Verification**
+   ```python
+   # ALWAYS verify webhook signatures
+   stripe.Webhook.construct_event(
+       payload, sig_header, webhook_secret
+   )
+   ```
+
+3. **Input Validation**
+   - Validate all user inputs
+   - Sanitize data before database operations
+   - Use parameterized queries for SQL
+
+4. **HTTPS Only**
+   - Production must use HTTPS
+   - Webhook endpoints require HTTPS
+
+5. **Environment Variables**
+   - Store in `.env` file (never commit)
+   - Load via `os.getenv()` in Python
+   - Reference in `docker-compose.yml` as `${VAR_NAME}`
+
+### Secrets to Never Commit
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `DATABASE_URL` / `POSTGRES_PASSWORD`
+- `MONGODB_URI` / `MONGODB_PASSWORD`
+- `OPENAI_API_KEY`
+- `SLACK_WEBHOOK`
+- Any API keys or credentials
+
+## Stripe Integration Patterns
+
+### Fetching Resources
 ```python
-@app.route('/api/new-endpoint')
-def new_endpoint():
-    try:
-        # Implementation
-        result = process_request()
-        return jsonify({
-            "status": "success",
-            "data": result,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# ALWAYS use auto_paging_iter() to avoid pagination limits
+for subscription in stripe.Subscription.list(
+    limit=100
+).auto_paging_iter():
+    # Process subscription
 ```
 
-### Adding Revenue Module (JavaScript)
-
-```javascript
-/**
- * New Revenue Module - Description
- */
-
-const express = require('express');
-const router = express.Router();
-
-// Configuration
-const MODULE_CONFIG = {
-  // settings
-};
-
-// Routes
-router.post('/endpoint', async (req, res) => {
-  try {
-    // Implementation
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-module.exports = router;
-```
-
-### Database Connections
-
+### Embedded Data Access
 ```python
-# PostgreSQL connection
-DATABASE_URL = os.environ.get('DATABASE_URL')
-
-# MongoDB connection
-MONGODB_URI = os.environ.get('MONGODB_URI')
+# Use embedded price data to avoid N+1 queries
+price = subscription_item['price']
+amount = price['unit_amount']
+# Instead of: stripe.Price.retrieve(price_id)
 ```
 
-## Error Handling
+### Webhook Handling
+```python
+@app.route('/webhook', methods=['POST'])
+def stripe_webhook():
+    payload = request.get_data()
+    sig_header = request.headers.get('Stripe-Signature')
+    
+    # MUST verify signature first
+    event = stripe.Webhook.construct_event(
+        payload, sig_header, webhook_secret
+    )
+    
+    # Then process event
+    if event['type'] == 'payment_intent.succeeded':
+        # Handle payment
+```
 
-### Python/Flask
-- Use try/except blocks for error-prone operations
-- Return appropriate HTTP status codes
-- Include error messages in JSON responses
+## Revenue Calculation Patterns
 
-### JavaScript/Express
-- Use async/await with try/catch
-- Use Express error handling middleware
-- Log errors appropriately
+### Constants and Configuration
+```python
+# Define revenue constants at top of file
+MRR = 25000  # Monthly Recurring Revenue
+ARR = MRR * 12  # Annual Recurring Revenue
+CUSTOMERS = 150
+```
 
-## Monitoring & Observability
+### Wealth Calculations
+```python
+# Customer LTV formula
+customer_ltv = (monthly_revenue / customers) * 36
 
-### Health Checks
-- Flask app exposes `/health` endpoint
-- Docker health check configured in Dockerfile
-- Returns JSON with status and service name
+# Emergency funds health score
+score = (current_reserve / recommended_reserve) * 100
+# Status thresholds: excellent ≥80%, good ≥60%, adequate ≥40%, low <40%
+```
 
-### Metrics
-- Prometheus metrics endpoint at `/metrics` (when configured)
-- Grafana dashboards for visualization
-- Monitor MRR, ARR, customer count, API usage
+## Docker Configuration
 
-## Dependencies Management
+### Dockerfile Best Practices
+- Base image: `python:3.11-slim`
+- Create non-root user: `app`
+- Install system deps: `gcc`, `postgresql-client`
+- Use multi-stage builds for optimization
+- Health check with `curl`
 
-### Python
-- Add new dependencies to `requirements.txt`
-- Pin versions for production stability
-- Use virtual environments for development
+### Docker Compose
+- Define services: app, postgres, mongodb
+- Use environment variables from `.env`
+- Volume mounts for persistence
+- Network isolation between services
 
-### Node.js
-- Dependencies managed in individual modules
-- Use npm for package management
-- Lock versions for critical packages
+## API Endpoint Patterns
 
-## Documentation
+### Standard Response Format
+```python
+{
+    "status": "success" | "error",
+    "timestamp": "2024-02-16T18:00:00.000Z",
+    "data": {...},
+    "message": "Optional message"
+}
+```
 
-### Code Comments
-- Use docstrings for Python functions
-- Use JSDoc-style comments for JavaScript
-- Document complex business logic
-- Explain "why" not just "what"
+### Key Endpoints
+- `/` - Dashboard HTML
+- `/api/revenue` - Current revenue metrics
+- `/api/masterwealth` - Total wealth calculation (ARR + liquid + emergency funds)
+- `/api/wealth-index` - Comprehensive wealth index with projections
+- `/api/emergency-funds` - Emergency fund health score
 
-### API Documentation
-- Document all endpoints with:
-  - Method (GET, POST, etc.)
-  - Parameters and request body
-  - Response format
-  - Error codes
+## Boundaries and Restrictions
 
-## Contributing Guidelines
+### DO NOT Modify Without Explicit Permission
 
-When making changes:
-1. Follow existing code patterns and conventions
-2. Test locally with Docker before committing
-3. Update documentation if adding features
-4. Ensure security best practices are followed
-5. Verify environment variables are documented
-6. Test payment flows with Stripe test mode
+1. **Production configuration files** (unless fixing a security issue)
+   - `Procfile`
+   - `render.yaml`
+   - `docker-compose.yml` (production values)
 
-## Revenue Stream Guidelines
+2. **Security-critical code**
+   - Webhook signature verification
+   - Authentication/authorization logic
+   - Stripe API integration (unless fixing bugs)
 
-### Stripe Integration
-- Use test mode keys for development (`sk_test_...`)
-- Always handle webhook failures gracefully
-- Implement idempotency for payment operations
-- Store customer IDs and subscription IDs securely
+3. **Existing working endpoints** (unless fixing bugs or security issues)
+   - Don't break existing API contracts
+   - Maintain backward compatibility
 
-### Affiliate System
-- Track referral sources accurately
-- Implement commission calculations server-side
-- Provide clear payout schedules
-- Validate affiliate links before creating
+4. **External dependencies** (unless necessary)
+   - Don't add new packages without good reason
+   - Don't update major versions without testing
 
-### Content Monetization
-- Respect content licensing terms
-- Implement usage tracking
-- Handle creator payouts reliably
-- Support multiple payment methods
+### Safe to Modify
 
-## Performance Considerations
+1. **Documentation files**
+   - README.md
+   - DEPLOYMENT.md
+   - SECURITY.md
+   - This instructions file
 
-- Use Redis for caching frequently accessed data
-- Implement connection pooling for databases
-- Optimize database queries
-- Use async operations where appropriate
-- Monitor response times and optimize slow endpoints
+2. **UI/UX improvements**
+   - Dashboard styling
+   - Visual indicators
+   - Error messages
 
-## Troubleshooting Common Issues
+3. **New features** (with tests)
+   - New API endpoints
+   - Additional revenue streams
+   - Enhanced calculations
 
-### Port Conflicts
-- Default Flask port: 5000
-- Production port: from `$PORT` environment variable
-- Check `docker-compose.yml` for service ports
+## Working with This Repository
 
-### Database Connection
-- Verify `DATABASE_URL` environment variable
-- Check database service is running in Docker
-- Ensure network connectivity between services
+### Adding New Features
 
-### Stripe Webhooks
-- Use ngrok or localtunnel for local testing
-- Verify webhook secret is correct
-- Check webhook signature validation
+1. **Understand existing patterns** - Review similar code first
+2. **Follow conventions** - Match the established style
+3. **Test locally** - Use Docker Compose for full stack testing
+4. **Update documentation** - Keep DEPLOYMENT.md current
+5. **Security first** - Follow security best practices
+6. **Mock data acceptable** - For development, mock data is fine
 
-## Additional Resources
+### Debugging Tips
 
-- **Deployment Guide**: See `DEPLOYMENT.md` for complete deployment instructions
+1. **Check logs**
+   ```bash
+   docker-compose logs -f revenue-app
+   ```
+
+2. **Test endpoints**
+   ```bash
+   curl http://localhost:8000/api/revenue
+   ```
+
+3. **Validate environment**
+   ```bash
+   docker-compose config
+   ```
+
+### Common Tasks
+
+**Add a new API endpoint:**
+1. Define route in `app.py` or appropriate `.js` router
+2. Follow existing response format
+3. Update documentation
+4. Test locally
+
+**Update revenue calculations:**
+1. Locate constants at top of `app.py`
+2. Modify calculation logic
+3. Verify all dependent endpoints
+4. Test with mock data
+
+**Deploy changes:**
+1. Commit to main branch
+2. Push to GitHub
+3. Render/Heroku auto-deploys
+4. Verify in production
+
+## Additional Context
+
+### Development Philosophy
+- **Graceful degradation** - System works with mock data if external services unavailable
+- **Real-time updates** - Dashboard refreshes every 5 seconds
+- **Multi-stream revenue** - Track all revenue sources in one place
+- **Financial health monitoring** - Beyond revenue, track LTV, emergency funds, wealth index
+
+### Monitoring and Observability
+- Health checks via curl in Docker
+- ISO 8601 timestamps on all responses
+- Status indicators on dashboard
+- Real-time metric updates via polling
+
+## Getting Help
+
+### Resources
+- **Deployment Guide**: See `DEPLOYMENT.md` for full setup instructions
 - **Security Policy**: See `SECURITY.md` for security guidelines
-- **Docker Compose**: See `docker-compose.yml` for service configuration
-- **Stripe API**: https://stripe.com/docs/api
-- **Flask Documentation**: https://flask.palletsprojects.com/
+- **Stripe Docs**: https://stripe.com/docs/api
+- **Flask Docs**: https://flask.palletsprojects.com/
 
-## Questions or Issues?
+### When Stuck
+1. Check existing code for patterns
+2. Review documentation files
+3. Test with Docker Compose locally
+4. Verify environment variables are set correctly
+5. Check Stripe dashboard for payment issues
 
-- Review existing code patterns in the repository
-- Check `DEPLOYMENT.md` for infrastructure setup
-- Refer to official documentation for frameworks used
-- Test changes thoroughly in Docker environment before deployment
+---
+
+**Remember**: This is a revenue-critical system. Always prioritize security, data integrity, and backward compatibility when making changes.

@@ -133,6 +133,79 @@ router.get('/pricing', (req, res) => {
   });
 });
 
+// Create Checkout Session
+router.post('/checkout-session', async (req, res) => {
+  try {
+    const { email, tier, userId } = req.body;
+
+    if (!SUBSCRIPTION_TIERS[tier]) {
+      return res.status(400).json({ error: 'Invalid tier' });
+    }
+
+    const sessionParams = {
+      mode: 'subscription',
+      line_items: [{
+        price: SUBSCRIPTION_TIERS[tier].stripePriceId,
+        quantity: 1
+      }],
+      success_url: `${process.env.APP_URL || 'http://localhost:5000'}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.APP_URL || 'http://localhost:5000'}/checkout/cancel`,
+      metadata: { userId: userId || '', tier }
+    };
+
+    if (email) {
+      sessionParams.customer_email = email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    console.log(`[Stripe Checkout] Session created: ${session.id}, Tier: ${tier}`);
+
+    res.json({
+      sessionId: session.id,
+      url: session.url,
+      tier,
+      status: session.status,
+      paymentStatus: session.payment_status
+    });
+  } catch (error) {
+    console.error('[Stripe Checkout] Error creating session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Retrieve and Approve Checkout Session
+router.get('/checkout-session/:sessionId', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['subscription', 'customer']
+    });
+
+    const approved = session.status === 'complete' && session.payment_status === 'paid';
+
+    console.log(`[Stripe Checkout] Session retrieved: ${sessionId}, Approved: ${approved}`);
+
+    res.json({
+      sessionId: session.id,
+      status: session.status,
+      paymentStatus: session.payment_status,
+      approved,
+      tier: session.metadata && session.metadata.tier,
+      customerId: session.customer && session.customer.id,
+      subscriptionId: session.subscription && session.subscription.id,
+      amountTotal: session.amount_total ? session.amount_total / 100 : null,
+      currency: session.currency,
+      customerEmail: session.customer_email,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('[Stripe Checkout] Error retrieving session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Billing Portal
 router.post('/billing-portal', async (req, res) => {
   try {
@@ -145,6 +218,151 @@ router.post('/billing-portal', async (req, res) => {
 
     res.json({ url: session.url });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Webhook Handler for Stripe Events
+router.post('/webhook', async (req, res) => {
+  try {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error('[Stripe Webhook] Signature verification failed:', err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    console.log(`[Stripe Webhook] Event received: ${event.type}`);
+
+    // Handle different event types
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object;
+        console.log(`[Stripe] Payment succeeded: ${paymentIntent.id}, Amount: $${paymentIntent.amount / 100}`);
+        // Trigger auto payout logic here if applicable
+        break;
+
+      case 'invoice.payment_succeeded':
+        const invoice = event.data.object;
+        console.log(`[Stripe] Invoice paid: ${invoice.id}, Amount: $${invoice.amount_paid / 100}`);
+        break;
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+        const subscription = event.data.object;
+        console.log(`[Stripe] Subscription ${event.type}: ${subscription.id}`);
+        break;
+
+      case 'checkout.session.completed':
+        const completedSession = event.data.object;
+        console.log(`[Stripe] Checkout session approved: ${completedSession.id}, Payment status: ${completedSession.payment_status}`);
+        // All completed checkout sessions are approved - trigger any post-approval logic here
+        break;
+
+      case 'checkout.session.async_payment_succeeded':
+        const asyncSession = event.data.object;
+        console.log(`[Stripe] Checkout session async payment approved: ${asyncSession.id}`);
+        break;
+
+      case 'checkout.session.async_payment_failed':
+        const failedSession = event.data.object;
+        console.error(`[Stripe] Checkout session payment failed: ${failedSession.id}`);
+        break;
+
+      case 'payout.paid':
+        const payout = event.data.object;
+        console.log(`[Stripe] Payout completed: ${payout.id}, Amount: $${payout.amount / 100}`);
+        break;
+
+      case 'payout.failed':
+        const failedPayout = event.data.object;
+        console.error(`[Stripe] Payout failed: ${failedPayout.id}, Reason: ${failedPayout.failure_message}`);
+        break;
+
+      default:
+        console.log(`[Stripe] Unhandled event type: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('[Stripe Webhook] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create Stripe Connect Account for Payouts
+router.post('/create-connect-account', async (req, res) => {
+  try {
+    const { email, userId } = req.body;
+
+    const account = await stripe.accounts.create({
+      type: 'express',
+      country: 'US',
+      email: email,
+      capabilities: {
+        transfers: { requested: true }
+      },
+      metadata: { userId }
+    });
+
+    console.log(`[Stripe Connect] Account created: ${account.id} for ${email}`);
+
+    res.json({
+      accountId: account.id,
+      email,
+      status: 'created',
+      needsOnboarding: true
+    });
+  } catch (error) {
+    console.error('[Stripe Connect] Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Initiate Payout via Stripe
+router.post('/initiate-payout', async (req, res) => {
+  try {
+    const { amount, currency, connectedAccountId, description } = req.body;
+
+    // NOTE: This is a general $1 minimum. Tier-based minimums should be enforced at the application layer before calling this endpoint
+    if (!amount || amount < 1) {
+      return res.status(400).json({ error: 'Minimum payout amount is $1.00' });
+    }
+
+    // TODO: In production, specify the connected account using Stripe-Account header or use transfers
+    // Example: stripe.payouts.create({ amount, currency }, { stripeAccount: connectedAccountId })
+    // Or use: stripe.transfers.create({ amount, currency, destination: connectedAccountId })
+    
+    // Create a payout to the connected account
+    const payout = await stripe.payouts.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: currency || 'usd',
+      description: description || 'Affiliate commission payout',
+      metadata: {
+        connectedAccountId,
+        initiatedAt: new Date().toISOString()
+      }
+    });
+
+    console.log(`[Stripe Payout] Initiated: ${payout.id}, Amount: $${amount}`);
+
+    res.json({
+      payoutId: payout.id,
+      amount,
+      currency: payout.currency,
+      status: payout.status,
+      arrivalDate: new Date(payout.arrival_date * 1000).toISOString(),
+      created: new Date(payout.created * 1000).toISOString()
+    });
+  } catch (error) {
+    console.error('[Stripe Payout] Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
