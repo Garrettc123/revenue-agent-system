@@ -1,0 +1,175 @@
+name: Revenue Engine — Daily Prospecting & Outreach
+
+on:
+  schedule:
+    # 6:00 AM CDT = 11:00 AM UTC
+    - cron: '0 11 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (log actions without sending outreach)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  prospecting-agent:
+    name: Run Prospecting & Outreach Agent
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify app imports
+        run: |
+          python -c "from master_conductor import get_conductor; print('✅ MasterConductor loaded successfully')"
+
+      - name: Run prospecting & outreach agent
+        env:
+          # Stripe — revenue data & billing
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_STARTER_PRICE_ID: ${{ secrets.STRIPE_STARTER_PRICE_ID }}
+          STRIPE_PROFESSIONAL_PRICE_ID: ${{ secrets.STRIPE_PROFESSIONAL_PRICE_ID }}
+          STRIPE_ENTERPRISE_PRICE_ID: ${{ secrets.STRIPE_ENTERPRISE_PRICE_ID }}
+          # AI & outreach
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          # Database
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          # App config
+          FLASK_ENV: production
+          PORT: "8000"
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          python - << 'PYEOF'
+          import os
+          import sys
+          from datetime import datetime
+
+          print(f"=== Revenue Engine — Prospecting & Outreach Agent ===")
+          print(f"Run time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+          print(f"Dry run:  {os.getenv('DRY_RUN', 'false')}")
+          print()
+
+          try:
+              from master_conductor import get_conductor
+
+              conductor = get_conductor()
+
+              # 1. Pull current revenue health / dashboard
+              print("--- [1/4] Fetching master revenue dashboard ---")
+              dashboard = conductor.get_master_dashboard()
+              summary = dashboard.get('summary', {})
+              print(f"  Total Monthly Revenue : ${summary.get('totalMonthlyRevenue', 0):,.0f}")
+              print(f"  Active Customers      : {summary.get('activeCustomers', 0)}")
+              print(f"  Growth Rate           : {summary.get('growthRate', 'N/A')}")
+              print(f"  Revenue Health Score  : {summary.get('revenueHealth', 'N/A')}")
+
+              # 2. Financial summary for outreach targeting
+              print()
+              print("--- [2/4] Generating financial summary for prospect targeting ---")
+              fin_summary = conductor.get_financial_summary()
+              print(f"  Gross Revenue : ${fin_summary.get('grossRevenue', 0):,.0f}")
+              print(f"  Net Profit    : ${fin_summary.get('netProfit', 0):,.0f}")
+              print(f"  Profit Margin : {fin_summary.get('profitMargin', 0):.1f}%")
+
+              # 3. System health check — only proceed if healthy
+              print()
+              print("--- [3/4] Checking system health ---")
+              health = conductor.get_system_health()
+              health_score = health.get('healthScore', 0)
+              print(f"  System Health Score: {health_score}/100")
+
+              alerts = health.get('alerts', [])
+              if alerts:
+                  print(f"  ⚠️  Active alerts ({len(alerts)}):")
+                  for alert in alerts[:5]:
+                      print(f"     - {alert.get('message', alert)}")
+
+              recs = health.get('recommendations', [])
+              if recs:
+                  print(f"  💡 Recommendations:")
+                  for r in recs[:3]:
+                      print(f"     - {r}")
+
+              # 4. Orchestrate payout cycle (outreach/commission distribution)
+              print()
+              print("--- [4/4] Orchestrating payout & outreach cycle ---")
+              dry_run = os.getenv('DRY_RUN', 'false').lower() == 'true'
+
+              if dry_run:
+                  print("  DRY RUN — skipping live payout orchestration")
+              else:
+                  payout_result = conductor.orchestrate_payout_cycle()
+                  print(f"  Payout cycle status  : {payout_result.get('status', 'unknown')}")
+                  print(f"  Streams processed    : {payout_result.get('streamsProcessed', 0)}")
+                  total_dist = payout_result.get('totalDistributed', 0)
+                  print(f"  Total distributed    : ${total_dist:,.0f}")
+
+              print()
+              print("✅ Prospecting & outreach agent completed successfully.")
+              sys.exit(0)
+
+          except Exception as e:
+              print(f"❌ Agent run failed: {e}", file=sys.stderr)
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          PYEOF
+
+      - name: Post run summary
+        if: always()
+        run: |
+          echo "## Revenue Engine Run Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Schedule | Daily at 11:00 UTC (6:00 AM CDT) |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run time | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+
+  # Optional: Slack notification on failure
+  notify-on-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: prospecting-agent
+    if: failure() && vars.SLACK_NOTIFICATIONS_ENABLED == 'true'
+    steps:
+      - name: Send Slack failure alert
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            curl -s -X POST "$SLACK_WEBHOOK" \
+              -H 'Content-type: application/json' \
+              --data "{
+                \"text\": \"⚠️ *Revenue Engine* daily run FAILED\",
+                \"attachments\": [{
+                  \"color\": \"danger\",
+                  \"fields\": [
+                    {\"title\": \"Repo\", \"value\": \"${{ github.repository }}\", \"short\": true},
+                    {\"title\": \"Run\", \"value\": \"<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>\", \"short\": true}
+                  ]
+                }]
+              }"
+          fi
