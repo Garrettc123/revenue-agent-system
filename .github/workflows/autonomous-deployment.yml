@@ -1,0 +1,23 @@
+name: Autonomous Deployment
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  notify-control-plane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Call control plane deploy endpoint
+        env:
+          AUTO_API_CONTROL_PLANE_URL: ${{ secrets.AUTO_API_CONTROL_PLANE_URL }}
+          AUTO_API_CONTROL_PLANE_TOKEN: ${{ secrets.AUTO_API_CONTROL_PLANE_TOKEN }}
+        run: |
+          set -e
+          test -n "$AUTO_API_CONTROL_PLANE_URL"
+          test -n "$AUTO_API_CONTROL_PLANE_TOKEN"
+          curl -fsS -X POST "${AUTO_API_CONTROL_PLANE_URL}/deploy" \
+            -H "Authorization: Bearer ${AUTO_API_CONTROL_PLANE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{"repository":"${GITHUB_REPOSITORY}","ref":"${GITHUB_REF_NAME}","sha":"${GITHUB_SHA}"}"

@@ -1,0 +1,22 @@
+name: Autonomous Health
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call control plane health endpoint
+        env:
+          AUTO_API_CONTROL_PLANE_URL: ${{ secrets.AUTO_API_CONTROL_PLANE_URL }}
+          AUTO_API_CONTROL_PLANE_TOKEN: ${{ secrets.AUTO_API_CONTROL_PLANE_TOKEN }}
+        run: |
+          set -e
+          test -n "$AUTO_API_CONTROL_PLANE_URL"
+          test -n "$AUTO_API_CONTROL_PLANE_TOKEN"
+          curl -fsS -X POST "${AUTO_API_CONTROL_PLANE_URL}/health" \
+            -H "Authorization: Bearer ${AUTO_API_CONTROL_PLANE_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{"repository":"${GITHUB_REPOSITORY}"}"
