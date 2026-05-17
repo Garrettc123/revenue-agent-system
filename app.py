@@ -1,3 +1,15 @@
+import logging
+import concurrent.futures
+from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE, TTL_WEALTH_INDEX, TTL_CONDUCTOR
+
+# Configure structured logging (Railway/Docker-compatible)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
+    datefmt='%Y-%m-%dT%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
 from flask import Flask, render_template_string, jsonify, request
 import os
 import stripe
@@ -12,9 +24,9 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 conductor = get_conductor()
 
 # Revenue configuration constants
-MRR = 5000
-CUSTOMERS = 12
-ARR = MRR * 12
+MRR = int(os.getenv('MRR', 5000))
+CUSTOMERS = int(os.getenv('CUSTOMERS', 12))
+ARR = int(os.getenv('ARR', MRR * 12))
 
 # Wealth calculation constants
 LIQUID_FUNDS_MONTHS = 3          # Months of MRR kept as liquid funds
@@ -32,9 +44,9 @@ HEALTH_ADEQUATE_THRESHOLD = 40
 DAYS_PER_MONTH = 30
 
 # Revenue configuration constants
-MRR = 5000
-CUSTOMERS = 12
-ARR = 60000
+MRR = int(os.getenv('MRR', 5000))  # read from env (same as above — deduplicated below)
+CUSTOMERS = int(os.getenv('CUSTOMERS', 12))
+ARR = int(os.getenv('ARR', MRR * 12))
 
 # Wealth calculation constants
 LIQUID_FUNDS_MONTHS = 3  # Months of MRR kept as liquid funds
@@ -692,6 +704,7 @@ def health():
 
 # Master Conductor API Endpoints
 
+@cached('conductor_dashboard', ttl=TTL_CONDUCTOR)
 @app.route('/api/conductor/dashboard')
 def conductor_dashboard():
     """
@@ -699,6 +712,7 @@ def conductor_dashboard():
     """
     return jsonify(conductor.get_master_dashboard())
 
+@cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
 @app.route('/api/conductor/financial-summary')
 def conductor_financial_summary():
     """
