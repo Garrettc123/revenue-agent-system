@@ -1,5 +1,11 @@
 name: Deploy Builder Agents
 
+permissions:
+  contents: read
+  id-token: write
+  deployments: write
+  statuses: write
+
 on:
   workflow_dispatch:
     inputs:
