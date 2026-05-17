@@ -334,7 +334,7 @@ def fetch_stripe_revenue():
             "configured": True
         }
     except Exception as e:
-        print(f"[Stripe] Error fetching revenue: {e}")
+            logger.error(f"[Stripe] Error fetching revenue: {e}", exc_info=True)
         return {
             "mrr": MRR,
             "customers": CUSTOMERS,
