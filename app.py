@@ -252,7 +252,7 @@ DASHBOARD_HTML = """
         updateDashboard();
 
         // Auto-refresh every 5 seconds
-        setInterval(updateDashboard, 5000);
+        // SSE replaces polling — see /static/js/dashboard-sse.js         // setInterval(updateDashboard, 5000); // DISABLED: replaced by SSE;
 
         function triggerPayout() {
             const statusDiv = document.getElementById('payout-status');
