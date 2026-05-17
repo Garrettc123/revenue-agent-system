@@ -5,7 +5,11 @@ Coordinates all revenue streams, aggregates metrics, and provides unified dashbo
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
-import random
+import logging
+import os
+from cache_utils import cached, TTL_CONDUCTOR
+
+logger = logging.getLogger(__name__)
 
 
 class MasterConductor:
@@ -24,11 +28,12 @@ class MasterConductor:
         }
 
         # Revenue constants (can be overridden by actual data)
-        self.mrr_base = 25000
-        self.arr_multiplier = 12
-        self.growth_rate = 0.235  # 23.5% monthly growth
+                self.mrr_base = int(os.getenv('MRR', 5000))
+                self.arr_multiplier = int(os.getenv('ARR_MULTIPLIER', 12))
+                self.growth_rate = float(os.getenv('GROWTH_RATE', 0.235))  # 23.5% monthly growth
 
-    def get_master_dashboard(self) -> Dict[str, Any]:
+        @cached('conductor_master_dashboard', ttl=TTL_CONDUCTOR)
+def get_master_dashboard(self) -> Dict[str, Any]:
         """
         Returns comprehensive dashboard with all revenue streams
         """
@@ -99,10 +104,10 @@ class MasterConductor:
             },
             'topPerformers': self._get_top_performers(revenue_data),
             'metrics': {
-                'customerAcquisitionCost': 45,
-                'averageLifetimeValue': 8500,
-                'churnRate': 2.1,
-                'netPromoterScore': 72,
+                                'customerAcquisitionCost': int(os.getenv('CAC', 45)),
+                                'averageLifetimeValue': int(os.getenv('LTV', 8500)),
+                                'churnRate': float(os.getenv('CHURN_RATE', 2.1)),
+                                'netPromoterScore': int(os.getenv('NPS', 72)),
                 'revenuePerCustomer': round(
                     revenue_data['total_monthly'] / max(revenue_data['total_customers'], 1)
                 )
@@ -110,7 +115,8 @@ class MasterConductor:
             'forecast': self._generate_forecast(revenue_data['total_monthly'])
         }
 
-    def get_financial_summary(self) -> Dict[str, Any]:
+        @cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
+def get_financial_summary(self) -> Dict[str, Any]:
         """
         Returns financial summary with revenue, expenses, and profit
         """
