@@ -31,6 +31,26 @@ HEALTH_ADEQUATE_THRESHOLD = 40
 # Time calculations
 DAYS_PER_MONTH = 30
 
+# Revenue configuration constants
+MRR = 5000
+CUSTOMERS = 12
+ARR = 60000
+
+# Wealth calculation constants
+LIQUID_FUNDS_MONTHS = 3  # Months of MRR kept as liquid funds
+EMERGENCY_RESERVE_MONTHS = 6  # Recommended emergency reserve in months
+IMMEDIATELY_ACCESSIBLE_MONTHS = 2  # Immediately accessible emergency funds in months
+CURRENT_RESERVE_MONTHS = 4  # Current emergency fund balance in months
+
+# Health score calculation
+HEALTH_SCORE_MAX = 100
+HEALTH_EXCELLENT_THRESHOLD = 80
+HEALTH_GOOD_THRESHOLD = 60
+HEALTH_ADEQUATE_THRESHOLD = 40
+
+# Time calculations
+DAYS_PER_MONTH = 30
+
 DASHBOARD_HTML = """
 <!DOCTYPE html>
 <html>
