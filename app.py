@@ -305,7 +305,7 @@ def fetch_stripe_revenue():
                     amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
                     if price['recurring']['interval'] == 'year':
                         amount = amount / 12
-                    mrr += amount
+                                    mrr += amount * item.get('quantity', 1)  # fix: multiply by seat/quantity for per-seat plans
             return mrr
 
         def _fetch_customer_count():
