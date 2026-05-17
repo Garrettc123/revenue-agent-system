@@ -283,11 +283,12 @@ def dashboard():
     return render_template_string(DASHBOARD_HTML)
 
 
+@cached('stripe_revenue', ttl=TTL_STRIPE_REVENUE)
 def fetch_stripe_revenue():
     """Fetch actual revenue data from Stripe API with fallback to mock data"""
     try:
         if not stripe.api_key:
-            return {
+            
                 "mrr": MRR,
                 "customers": CUSTOMERS,
                 "arr": ARR,
@@ -295,28 +296,35 @@ def fetch_stripe_revenue():
                 "configured": False
             }
 
-        # Fetch all active subscriptions with auto-pagination (avoids N+1 queries)
-        mrr = 0
-        for subscription in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
-            for item in subscription['items']['data']:
-                price = item['price']  # Use embedded price data
-                amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
-                if price['recurring']['interval'] == 'year':
-                    amount = amount / 12
-                mrr += amount
+                # Fetch Stripe data in parallel using ThreadPoolExecutor (~3x faster than sequential)
+        def _fetch_subscriptions():
+            mrr = 0
+            for sub in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
+                for item in sub['items']['data']:
+                    price = item['price']
+                    amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
+                    if price['recurring']['interval'] == 'year':
+                        amount = amount / 12
+                    mrr += amount
+            return mrr
 
-        # Get accurate customer count
-        customer_count = 0
-        for _ in stripe.Customer.list(limit=100).auto_paging_iter():
-            customer_count += 1
+        def _fetch_customer_count():
+            return sum(1 for _ in stripe.Customer.list(limit=100).auto_paging_iter())
 
-        # Fetch total revenue from successful charges
-        charges = stripe.Charge.list(limit=100)
-        total_revenue = sum(
-            charge['amount'] / 100
-            for charge in charges.data
-            if charge['status'] == 'succeeded'
-        )
+        def _fetch_charges():
+            charges = stripe.Charge.list(limit=100)
+            return sum(
+                c['amount'] / 100 for c in charges.data if c['status'] == 'succeeded'
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            fut_mrr = executor.submit(_fetch_subscriptions)
+            fut_customers = executor.submit(_fetch_customer_count)
+            fut_charges = executor.submit(_fetch_charges)
+            mrr = fut_mrr.result()
+            customer_count = fut_customers.result()
+            total_revenue = fut_charges.result()
+
 
         return {
             "mrr": round(mrr, 2),
