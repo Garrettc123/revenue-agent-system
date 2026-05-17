@@ -1,4 +1,8 @@
 import logging
+import queue
+import threading
+import time
+import json
 import concurrent.futures
 from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE, TTL_WEALTH_INDEX, TTL_CONDUCTOR
 
@@ -22,6 +26,24 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
 
 # Initialize Master Conductor
 conductor = get_conductor()
+
+# ── SSE subscriber registry ──────────────────────────────────────────────────
+_sse_subscribers: list = []   # list of queue.Queue, one per connected client
+_sse_lock = threading.Lock()
+
+def _notify_sse(event: str, data: dict) -> None:
+    """Push a JSON event to all connected SSE clients."""
+    payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    with _sse_lock:
+        dead = []
+        for q in _sse_subscribers:
+            try:
+                q.put_nowait(payload)
+            except queue.Full:
+                dead.append(q)
+        for q in dead:
+            _sse_subscribers.remove(q)
+
 
 # Revenue configuration constants
 MRR = int(os.getenv('MRR', 5000))
@@ -544,32 +566,46 @@ def stripe_webhook():
 
         event_type = event['type']
 
-        if event_type == 'payment_intent.succeeded':
+                if event_type == 'payment_intent.succeeded':
             amount = event['data']['object']['amount'] / 100
-            print(f"[Webhook] Payment succeeded: ${amount}")
+            logger.info(f'[Webhook] payment_intent.succeeded: ${amount:.2f}')
+            _notify_sse('revenue_update', {'event': event_type, 'amount': amount})
         elif event_type == 'customer.subscription.created':
-            print(f"[Webhook] New subscription: {event['data']['object']['id']}")
+            sub_id = event['data']['object']['id']
+            plan   = event['data']['object'].get('plan', {}).get('nickname', 'unknown')
+            logger.info(f'[Webhook] customer.subscription.created: {sub_id} plan={plan}')
+            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id, 'plan': plan})
         elif event_type == 'customer.subscription.updated':
-            print(f"[Webhook] Subscription updated: {event['data']['object']['id']}")
+            sub_id = event['data']['object']['id']
+            logger.info(f'[Webhook] customer.subscription.updated: {sub_id}')
+            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id})
         elif event_type == 'customer.subscription.deleted':
-            print(f"[Webhook] Subscription cancelled: {event['data']['object']['id']}")
+            sub_id = event['data']['object']['id']
+            logger.info(f'[Webhook] customer.subscription.deleted: {sub_id}')
+            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id})
         elif event_type == 'charge.succeeded':
             amount = event['data']['object']['amount'] / 100
-            print(f"[Webhook] Charge succeeded: ${amount}")
+            logger.info(f'[Webhook] charge.succeeded: ${amount:.2f}')
+            _notify_sse('revenue_update', {'event': event_type, 'amount': amount})
         elif event_type == 'invoice.payment_succeeded':
             amount = event['data']['object']['amount_paid'] / 100
-            print(f"[Webhook] Invoice paid: ${amount}")
+            invoice_id = event['data']['object']['id']
+            logger.info(f'[Webhook] invoice.payment_succeeded: {invoice_id} ${amount:.2f}')
+            _notify_sse('revenue_update', {'event': event_type, 'amount': amount, 'invoice_id': invoice_id})
+        else:
+            logger.debug(f'[Webhook] unhandled event type: {event_type}')
 
-        return jsonify({"status": "success", "event": event_type}), 200
+        # Flush Redis cache so next dashboard load reflects the new data
+        invalidate_revenue_cache()
+        logger.info(f'[Webhook] cache invalidated after {event_type}')
 
-    except ValueError as e:
-        print(f"[Webhook] Invalid payload: {e}")
-        return jsonify({"error": "Invalid payload"}), 400
+        return jsonify({'status': 'success', 'event': event_type}), 200
+return jsonify({"error": "Invalid payload"}), 400
     except stripe.error.SignatureVerificationError as e:
-        print(f"[Webhook] Invalid signature: {e}")
+                    logger.warning(f'[Webhook] Invalid signature: {e}')
         return jsonify({"error": "Invalid signature"}), 400
     except Exception as e:
-        print(f"[Webhook] Error processing webhook: {e}")
+                logger.error(f'[Webhook] Error processing webhook: {e}', exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -756,6 +792,53 @@ def conductor_orchestrate_payout():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# ── Server-Sent Events (SSE) endpoint ──────────────────────────────────────────
+from flask import Response, stream_with_context
+
+@app.route('/api/events/stream')
+def events_stream():
+    """SSE endpoint — clients subscribe here to receive real-time revenue events.
+
+    Replaces the 5-second polling `setInterval` in the dashboard JS.
+    Push events are emitted by `_notify_sse()` whenever a Stripe webhook fires
+    or when `invalidate_revenue_cache()` is called.
+    """
+    def generate():
+        q = queue.Queue(maxsize=50)
+        with _sse_lock:
+            _sse_subscribers.append(q)
+        logger.info(f'[SSE] client connected, total={len(_sse_subscribers)}')
+        try:
+            # Send an initial heartbeat so the browser connection completes
+            yield 'event: heartbeat\ndata: {}\n\n'
+            while True:
+                try:
+                    # Block for up to 25s then send keep-alive comment
+                    msg = q.get(timeout=25)
+                    yield msg
+                except queue.Empty:
+                    yield ': keep-alive\n\n'
+        except GeneratorExit:
+            pass
+        finally:
+            with _sse_lock:
+                try:
+                    _sse_subscribers.remove(q)
+                except ValueError:
+                    pass
+            logger.info(f'[SSE] client disconnected, total={len(_sse_subscribers)}')
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',   # disable nginx buffering
+            'Connection': 'keep-alive',
+        }
+    )
+
+if __name__ == '__main__':
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
