@@ -278,17 +278,26 @@ def get_financial_summary(self) -> Dict[str, Any]:
 
     def _calculate_all_revenue(self) -> Dict[str, Any]:
         """Calculate revenue from all streams"""
-        # Simulated data - in production, this would query actual databases
-        subscriptions = random.randint(80000, 120000)
-        api_usage = random.randint(30000, 60000)
-        affiliates = random.randint(25000, 45000)
-        content = random.randint(20000, 40000)
-        services = random.randint(50000, 90000)
+                # Delegate to fetch_stripe_revenue() for real Stripe data (with Redis caching)
+        # Lazy import to avoid circular import
+        from app import fetch_stripe_revenue
+        try:
+            stripe_data = fetch_stripe_revenue()
+            subscriptions = stripe_data.get('mrr', self.mrr_base) * 12  # annualized from MRR
+            api_usage = int(os.getenv('API_USAGE_REVENUE', 0))
+            affiliates = int(os.getenv('AFFILIATE_REVENUE', 0))
+            content = int(os.getenv('CONTENT_REVENUE', 0))
+            services = int(os.getenv('SERVICES_REVENUE', 0))
+            active_customers = stripe_data.get('customers', 0)
+        except Exception as e:
+            logger.warning(f'[Conductor] Could not fetch Stripe data, using defaults: {e}')
+            subscriptions = self.mrr_base
+            api_usage = affiliates = content = services = active_customers = 0
 
-        total_monthly = subscriptions + api_usage + affiliates + content + services
+        total_monthly = (subscriptions / 12) + api_usage + affiliates + content + services
 
         return {
-            'subscriptions': subscriptions,
+    'subscriptions': subscriptions,
             'api_usage': api_usage,
             'affiliates': affiliates,
             'content': content,
