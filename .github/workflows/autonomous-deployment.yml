@@ -1,5 +1,10 @@
 name: Autonomous Deployment
 
+permissions:
+  contents: read
+  deployments: write
+  statuses: write
+
 on:
   push:
     branches: [main]
