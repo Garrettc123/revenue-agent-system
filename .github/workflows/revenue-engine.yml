@@ -53,7 +53,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           # Database
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          MONGODB_URI: ${{ secrets.MONGOOB_URI }}
           # App config
           FLASK_ENV: production
           PORT: "8000"
