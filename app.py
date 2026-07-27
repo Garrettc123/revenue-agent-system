@@ -310,7 +310,7 @@ def fetch_stripe_revenue():
     """Fetch actual revenue data from Stripe API with fallback to mock data"""
     try:
         if not stripe.api_key:
-            
+            return {
                 "mrr": MRR,
                 "customers": CUSTOMERS,
                 "arr": ARR,
@@ -318,7 +318,7 @@ def fetch_stripe_revenue():
                 "configured": False
             }
 
-                # Fetch Stripe data in parallel using ThreadPoolExecutor (~3x faster than sequential)
+        # Fetch Stripe data in parallel using ThreadPoolExecutor (~3x faster than sequential)
         def _fetch_subscriptions():
             mrr = 0
             for sub in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
@@ -327,7 +327,7 @@ def fetch_stripe_revenue():
                     amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
                     if price['recurring']['interval'] == 'year':
                         amount = amount / 12
-                                    mrr += amount * item.get('quantity', 1)  # fix: multiply by seat/quantity for per-seat plans
+                    mrr += amount * item.get('quantity', 1)  # multiply by seat/quantity for per-seat plans
             return mrr
 
         def _fetch_customer_count():
@@ -356,7 +356,7 @@ def fetch_stripe_revenue():
             "configured": True
         }
     except Exception as e:
-            logger.error(f"[Stripe] Error fetching revenue: {e}", exc_info=True)
+        logger.error(f"[Stripe] Error fetching revenue: {e}", exc_info=True)
         return {
             "mrr": MRR,
             "customers": CUSTOMERS,
@@ -566,7 +566,7 @@ def stripe_webhook():
 
         event_type = event['type']
 
-                if event_type == 'payment_intent.succeeded':
+        if event_type == 'payment_intent.succeeded':
             amount = event['data']['object']['amount'] / 100
             logger.info(f'[Webhook] payment_intent.succeeded: ${amount:.2f}')
             _notify_sse('revenue_update', {'event': event_type, 'amount': amount})
@@ -600,12 +600,13 @@ def stripe_webhook():
         logger.info(f'[Webhook] cache invalidated after {event_type}')
 
         return jsonify({'status': 'success', 'event': event_type}), 200
-return jsonify({"error": "Invalid payload"}), 400
+    except ValueError:
+        return jsonify({"error": "Invalid payload"}), 400
     except stripe.error.SignatureVerificationError as e:
-                    logger.warning(f'[Webhook] Invalid signature: {e}')
+        logger.warning(f'[Webhook] Invalid signature: {e}')
         return jsonify({"error": "Invalid signature"}), 400
     except Exception as e:
-                logger.error(f'[Webhook] Error processing webhook: {e}', exc_info=True)
+        logger.error(f'[Webhook] Error processing webhook: {e}', exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 
@@ -838,7 +839,6 @@ def events_stream():
         }
     )
 
-if __name__ == '__main__':
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
