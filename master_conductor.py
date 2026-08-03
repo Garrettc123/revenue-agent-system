@@ -160,6 +160,7 @@ class MasterConductor:
         Generate revenue forecast for specified number of months
         """
         current_revenue = self._calculate_all_revenue()['total_monthly']
+        months = max(1, months)
         forecast = []
 
         month_names = [
@@ -173,12 +174,12 @@ class MasterConductor:
             # Apply compound growth with some randomness
             growth_factor = 1 + (self.growth_rate * (1 + random.uniform(-0.1, 0.1)))
             projected_revenue = round(current_revenue * (growth_factor ** (i + 1)))
+            prev_revenue = round(current_revenue * (growth_factor ** i))
 
             # Calculate trend
-            if i == 0:
+            if i == 0 or prev_revenue == 0:
                 trend = f"+{self.growth_rate * 100:.0f}%"
             else:
-                prev_revenue = round(current_revenue * (growth_factor ** i))
                 trend_pct = ((projected_revenue - prev_revenue) / prev_revenue) * 100
                 trend = f"+{trend_pct:.0f}%"
 

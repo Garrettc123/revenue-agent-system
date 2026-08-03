@@ -1,8 +1,19 @@
 /**
  * dashboard-sse.js
  * Replaces the 5-second setInterval polling with a persistent SSE connection.
- * Drop-in replacement: add <script src="/static/js/dashboard-sse.js"></script>
- * to the dashboard HTML and remove the setInterval(updateDashboard, 5000) call.
+ *
+ * OPT-IN ONLY. An SSE response holds its gunicorn worker for the lifetime of the
+ * connection, so this must not be loaded when the app runs under gunicorn's
+ * default synchronous worker class — a single connected client would make the
+ * whole service unreachable. Before adding
+ * <script src="/static/js/dashboard-sse.js"></script> to the dashboard HTML,
+ * start gunicorn with an async or threaded worker class sized for the expected
+ * number of concurrent dashboards, and remove the setInterval(updateDashboard,
+ * 5000) call from the template.
+ *
+ * Note: the subscriber registry backing /api/events/stream lives in process
+ * memory, so with more than one worker a webhook only reaches the clients
+ * attached to the worker that handled it.
  */
 
 (function () {

@@ -240,15 +240,17 @@ curl http://localhost:5000/api/revenue
 # Manually trigger revenue sync
 curl -X POST http://localhost:5000/api/revenue/sync
 
-# Test webhook endpoint
-curl -X POST http://localhost:5000/webhooks/stripe \
-  -H "Content-Type: application/json" \
-  -d '{"type": "payment_intent.succeeded", "data": {"object": {"amount": 5000}}}'
+# Test webhook endpoint.
+# STRIPE_WEBHOOK_SECRET must be set: every event is signature-verified and
+# unsigned requests are rejected with 503. Use the Stripe CLI so the request
+# carries a valid Stripe-Signature header.
+stripe listen --forward-to localhost:5000/webhooks/stripe
+stripe trigger payment_intent.succeeded
 ```
 
 ### 3. Access Live Dashboard
 - Dashboard: http://localhost:5000
-- Auto-refreshes in real time via Server-Sent Events (`/api/events/stream`), pushed on Stripe webhook activity, with polling fallback
+- Auto-refreshes every 5 seconds with real Stripe data
 - Shows MRR, customer count, and system status
 
 ### 4. Monitor Revenue

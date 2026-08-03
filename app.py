@@ -250,8 +250,14 @@ DASHBOARD_HTML = """
         // Initial load
         updateDashboard();
 
-        // Auto-refresh is driven by Server-Sent Events (see /static/js/dashboard-sse.js),
-        // which also falls back to polling when EventSource is unavailable.
+        // Auto-refresh every 5 seconds.
+        // NOTE: /api/events/stream (SSE) offers real-time push instead of polling,
+        // but a streaming response occupies a gunicorn worker for its whole lifetime.
+        // Every deployment here uses the default synchronous worker class
+        // (render.yaml runs a single worker), so enabling SSE by default would make
+        // the service unreachable. To opt in, run gunicorn with an async or threaded
+        // worker class and load /static/js/dashboard-sse.js.
+        setInterval(updateDashboard, 5000);
 
         function triggerPayout() {
             const statusDiv = document.getElementById('payout-status');
@@ -295,7 +301,6 @@ DASHBOARD_HTML = """
             });
         }
     </script>
-    <script src="/static/js/dashboard-sse.js"></script>
 </body>
 </html>
 """
@@ -554,15 +559,16 @@ def stripe_webhook():
     payload = request.data
     sig_header = request.headers.get('Stripe-Signature')
 
+    # Fail closed: without the signing secret we cannot authenticate the sender,
+    # and an unverified event would let anyone inject revenue events.
+    if not STRIPE_WEBHOOK_SECRET:
+        logger.error('[Webhook] STRIPE_WEBHOOK_SECRET is not configured, rejecting event')
+        return jsonify({"error": "Webhook signing secret not configured"}), 503
+
     try:
-        if STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
-        else:
-            event = stripe.Event.construct_from(
-                request.get_json(), stripe.api_key
-            )
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
 
         event_type = event['type']
 
@@ -774,6 +780,8 @@ def conductor_forecast():
     Revenue forecast for next 12 months
     """
     months = request.args.get('months', 12, type=int)
+    # Clamp to a sane range: 0 or negative values yield an empty/undefined forecast
+    months = max(1, min(months or 12, 60))
     return jsonify(conductor.get_revenue_forecast(months))
 
 @app.route('/api/conductor/health')

@@ -105,7 +105,7 @@ The system tracks and displays:
 - **MRR**: Monthly Recurring Revenue ($5,000)
 - **ARR**: Annual Recurring Revenue ($60,000)
 - **Active Customers**: 12
-- **Live Dashboard**: Updates in real time via Server-Sent Events
+- **Live Dashboard**: Updates every 5 seconds
 
 ## 🔐 Security
 
