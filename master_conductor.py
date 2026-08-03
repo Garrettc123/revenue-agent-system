@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import logging
 import os
+import random
 from cache_utils import cached, TTL_CONDUCTOR
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,12 @@ class MasterConductor:
         }
 
         # Revenue constants (can be overridden by actual data)
-                self.mrr_base = int(os.getenv('MRR', 5000))
-                self.arr_multiplier = int(os.getenv('ARR_MULTIPLIER', 12))
-                self.growth_rate = float(os.getenv('GROWTH_RATE', 0.235))  # 23.5% monthly growth
+        self.mrr_base = int(os.getenv('MRR', 5000))
+        self.arr_multiplier = int(os.getenv('ARR_MULTIPLIER', 12))
+        self.growth_rate = float(os.getenv('GROWTH_RATE', 0.235))  # 23.5% monthly growth
 
-        @cached('conductor_master_dashboard', ttl=TTL_CONDUCTOR)
-def get_master_dashboard(self) -> Dict[str, Any]:
+    @cached('conductor_master_dashboard', ttl=TTL_CONDUCTOR)
+    def get_master_dashboard(self) -> Dict[str, Any]:
         """
         Returns comprehensive dashboard with all revenue streams
         """
@@ -104,10 +105,10 @@ def get_master_dashboard(self) -> Dict[str, Any]:
             },
             'topPerformers': self._get_top_performers(revenue_data),
             'metrics': {
-                                'customerAcquisitionCost': int(os.getenv('CAC', 45)),
-                                'averageLifetimeValue': int(os.getenv('LTV', 8500)),
-                                'churnRate': float(os.getenv('CHURN_RATE', 2.1)),
-                                'netPromoterScore': int(os.getenv('NPS', 72)),
+                'customerAcquisitionCost': int(os.getenv('CAC', 45)),
+                'averageLifetimeValue': int(os.getenv('LTV', 8500)),
+                'churnRate': float(os.getenv('CHURN_RATE', 2.1)),
+                'netPromoterScore': int(os.getenv('NPS', 72)),
                 'revenuePerCustomer': round(
                     revenue_data['total_monthly'] / max(revenue_data['total_customers'], 1)
                 )
@@ -115,8 +116,8 @@ def get_master_dashboard(self) -> Dict[str, Any]:
             'forecast': self._generate_forecast(revenue_data['total_monthly'])
         }
 
-        @cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
-def get_financial_summary(self) -> Dict[str, Any]:
+    @cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
+    def get_financial_summary(self) -> Dict[str, Any]:
         """
         Returns financial summary with revenue, expenses, and profit
         """
@@ -278,7 +279,7 @@ def get_financial_summary(self) -> Dict[str, Any]:
 
     def _calculate_all_revenue(self) -> Dict[str, Any]:
         """Calculate revenue from all streams"""
-                # Delegate to fetch_stripe_revenue() for real Stripe data (with Redis caching)
+        # Delegate to fetch_stripe_revenue() for real Stripe data (with Redis caching)
         # Lazy import to avoid circular import
         from app import fetch_stripe_revenue
         try:
@@ -297,7 +298,7 @@ def get_financial_summary(self) -> Dict[str, Any]:
         total_monthly = (subscriptions / 12) + api_usage + affiliates + content + services
 
         return {
-    'subscriptions': subscriptions,
+            'subscriptions': subscriptions,
             'api_usage': api_usage,
             'affiliates': affiliates,
             'content': content,
