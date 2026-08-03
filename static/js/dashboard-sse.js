@@ -10,18 +10,6 @@
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  function fmt(n, decimals = 2) {
-    return Number(n).toLocaleString('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-  }
-
-  function setEl(id, value) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = value;
-  }
-
   function flash(id) {
     const el = document.getElementById(id);
     if (!el) return;
@@ -31,53 +19,28 @@
     el.classList.add('sse-flash');
   }
 
-  // ── Fetch helpers (same endpoints the old polling used) ────────────────────
-
-  async function fetchJSON(url) {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`${url} → ${r.status}`);
-    return r.json();
-  }
-
-  async function refreshRevenue() {
-    try {
-      const d = await fetchJSON('/api/revenue');
-      setEl('mrr', '$' + fmt(d.mrr));
-      setEl('arr', '$' + fmt(d.arr));
-      setEl('customers', d.customers);
-      setEl('total-revenue', '$' + fmt(d.total_revenue));
-      flash('mrr');
-      flash('arr');
-    } catch (e) {
-      console.warn('[SSE] refreshRevenue failed:', e);
-    }
-  }
-
-  async function refreshWealth() {
-    try {
-      const d = await fetchJSON('/api/wealth-index');
-      setEl('wealth-index', fmt(d.wealth_index, 1));
-      setEl('ltv', '$' + fmt(d.ltv));
-    } catch (e) {
-      console.warn('[SSE] refreshWealth failed:', e);
-    }
-  }
-
-  async function refreshMaster() {
-    try {
-      const d = await fetchJSON('/api/masterwealth');
-      setEl('master-wealth', '$' + fmt(d.total_wealth));
-      setEl('master-mrr', '$' + fmt(d.mrr));
-      setEl('master-arr', '$' + fmt(d.arr));
-    } catch (e) {
-      console.warn('[SSE] refreshMaster failed:', e);
-    }
-  }
+  // ── Refresh helpers ────────────────────────────────────────────────────────
+  // The dashboard template defines a global updateDashboard() that fetches
+  // /api/revenue, /api/wealth-index, /api/masterwealth and /api/emergency-funds
+  // and populates every element. Delegate to it so the element IDs and the
+  // formatting rules live in exactly one place.
 
   function refreshAll() {
-    refreshRevenue();
-    refreshWealth();
-    refreshMaster();
+    if (typeof window.updateDashboard !== 'function') {
+      console.warn('[SSE] updateDashboard() is not defined — nothing to refresh');
+      return;
+    }
+    try {
+      window.updateDashboard();
+    } catch (e) {
+      console.warn('[SSE] updateDashboard() failed:', e);
+    }
+  }
+
+  function refreshRevenue() {
+    refreshAll();
+    flash('mrr');
+    flash('arr');
   }
 
   // ── SSE connection ─────────────────────────────────────────────────────────
@@ -103,7 +66,6 @@
     _es.addEventListener('revenue_update', function (e) {
       console.info('[SSE] revenue_update', e.data);
       refreshRevenue();
-      refreshMaster();
     });
 
     // subscription_change fires on customer.subscription.created/updated/deleted

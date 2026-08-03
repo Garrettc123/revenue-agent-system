@@ -116,6 +116,6 @@ def cached(key: str, ttl: int = 120):
 
 def invalidate_revenue_cache() -> None:
     """Call this after a successful Stripe webhook to flush stale data."""
-    for k in ('stripe_revenue', 'wealth_index', 'masterwealth', 'conductor_dashboard'):
+    for k in ('stripe_revenue', 'conductor_master_dashboard', 'conductor_financial_summary'):
         cache_delete(k)
     logging.info('[Cache] Revenue cache invalidated')

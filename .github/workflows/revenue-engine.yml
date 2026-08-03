@@ -53,7 +53,7 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
           # Database
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MONGODB_URI: ${{ secrets.MONGOOB_URI }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
           # App config
           FLASK_ENV: production
           PORT: "8000"
@@ -87,9 +87,10 @@ jobs:
               print()
               print("--- [2/4] Generating financial summary for prospect targeting ---")
               fin_summary = conductor.get_financial_summary()
-              print(f"  Gross Revenue : ${fin_summary.get('grossRevenue', 0):,.0f}")
-              print(f"  Net Profit    : ${fin_summary.get('netProfit', 0):,.0f}")
-              print(f"  Profit Margin : {fin_summary.get('profitMargin', 0):.1f}%")
+              fin_revenue = fin_summary.get('revenue', {})
+              print(f"  Gross Revenue : ${fin_revenue.get('gross', 0):,.0f}")
+              print(f"  Net Profit    : ${fin_revenue.get('netAfterCosts', 0):,.0f}")
+              print(f"  Profit Margin : {fin_revenue.get('margin', 0):.1f}%")
 
               # 3. System health check — only proceed if healthy
               print()
@@ -120,8 +121,8 @@ jobs:
               else:
                   payout_result = conductor.orchestrate_payout_cycle()
                   print(f"  Payout cycle status  : {payout_result.get('status', 'unknown')}")
-                  print(f"  Streams processed    : {payout_result.get('streamsProcessed', 0)}")
-                  total_dist = payout_result.get('totalDistributed', 0)
+                  print(f"  Payouts processed    : {payout_result.get('processedCount', 0)}")
+                  total_dist = payout_result.get('totalPayouts', 0)
                   print(f"  Total distributed    : ${total_dist:,.0f}")
 
               print()

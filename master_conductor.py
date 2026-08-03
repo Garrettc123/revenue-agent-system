@@ -135,6 +135,7 @@ class MasterConductor:
 
         total_expenses = sum(expenses.values())
         net_revenue = gross_revenue - total_expenses
+        margin = round((net_revenue / gross_revenue) * 100, 1) if gross_revenue else 0.0
 
         return {
             'period': datetime.utcnow().strftime('%B %Y'),
@@ -142,14 +143,14 @@ class MasterConductor:
                 'gross': gross_revenue,
                 'netAfterCosts': net_revenue,
                 'taxable': net_revenue,
-                'margin': round((net_revenue / gross_revenue) * 100, 1)
+                'margin': margin
             },
             'expenses': expenses,
             'totalExpenses': total_expenses,
             'projections': {
                 'yearlyRevenue': gross_revenue * 12,
                 'yearlyProfit': net_revenue * 12,
-                'profitMargin': round((net_revenue / gross_revenue) * 100, 1)
+                'profitMargin': margin
             },
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -284,7 +285,7 @@ class MasterConductor:
         from app import fetch_stripe_revenue
         try:
             stripe_data = fetch_stripe_revenue()
-            subscriptions = stripe_data.get('mrr', self.mrr_base) * 12  # annualized from MRR
+            subscriptions = stripe_data.get('mrr', self.mrr_base)  # monthly recurring revenue
             api_usage = int(os.getenv('API_USAGE_REVENUE', 0))
             affiliates = int(os.getenv('AFFILIATE_REVENUE', 0))
             content = int(os.getenv('CONTENT_REVENUE', 0))
@@ -295,7 +296,7 @@ class MasterConductor:
             subscriptions = self.mrr_base
             api_usage = affiliates = content = services = active_customers = 0
 
-        total_monthly = (subscriptions / 12) + api_usage + affiliates + content + services
+        total_monthly = subscriptions + api_usage + affiliates + content + services
 
         return {
             'subscriptions': subscriptions,
@@ -304,13 +305,13 @@ class MasterConductor:
             'content': content,
             'services': services,
             'total_monthly': total_monthly,
-            'total_yearly': total_monthly * 12,
-            'subscription_customers': random.randint(100, 200),
+            'total_yearly': total_monthly * self.arr_multiplier,
+            'subscription_customers': active_customers,
             'api_calls': random.randint(500000, 1000000),
             'active_affiliates': random.randint(30, 60),
             'digital_products': random.randint(5, 15),
             'active_projects': random.randint(10, 25),
-            'total_customers': random.randint(150, 300)
+            'total_customers': active_customers
         }
 
     def _calculate_percentage(self, value: float, total: float) -> int:

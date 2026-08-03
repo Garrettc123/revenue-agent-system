@@ -1,10 +1,9 @@
 import logging
 import queue
 import threading
-import time
 import json
 import concurrent.futures
-from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE, TTL_WEALTH_INDEX, TTL_CONDUCTOR
+from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE
 
 # Configure structured logging (Railway/Docker-compatible)
 logging.basicConfig(
@@ -14,7 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify, request, Response, stream_with_context
 import os
 import stripe
 from datetime import datetime
@@ -251,8 +250,8 @@ DASHBOARD_HTML = """
         // Initial load
         updateDashboard();
 
-        // Auto-refresh every 5 seconds
-        // SSE replaces polling — see /static/js/dashboard-sse.js         // setInterval(updateDashboard, 5000); // DISABLED: replaced by SSE;
+        // Auto-refresh is driven by Server-Sent Events (see /static/js/dashboard-sse.js),
+        // which also falls back to polling when EventSource is unavailable.
 
         function triggerPayout() {
             const statusDiv = document.getElementById('payout-status');
@@ -296,6 +295,7 @@ DASHBOARD_HTML = """
             });
         }
     </script>
+    <script src="/static/js/dashboard-sse.js"></script>
 </body>
 </html>
 """
@@ -750,8 +750,10 @@ def health():
 
 
 # Master Conductor API Endpoints
+# NOTE: caching happens inside MasterConductor (see @cached on its methods).
+# Wrapping a Flask view with @cached would only serialise the Response object,
+# so these routes intentionally stay uncached.
 
-@cached('conductor_dashboard', ttl=TTL_CONDUCTOR)
 @app.route('/api/conductor/dashboard')
 def conductor_dashboard():
     """
@@ -759,7 +761,6 @@ def conductor_dashboard():
     """
     return jsonify(conductor.get_master_dashboard())
 
-@cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
 @app.route('/api/conductor/financial-summary')
 def conductor_financial_summary():
     """
@@ -796,7 +797,6 @@ def conductor_orchestrate_payout():
         return jsonify({"error": str(e)}), 500
 
 # ── Server-Sent Events (SSE) endpoint ──────────────────────────────────────────
-from flask import Response, stream_with_context
 
 @app.route('/api/events/stream')
 def events_stream():

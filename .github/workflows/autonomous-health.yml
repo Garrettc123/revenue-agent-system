@@ -1,7 +1,7 @@
 name: Autonomous Health
 permissions:
   contents: read
-    statuses: write
+  statuses: write
 
 on:
   schedule:
