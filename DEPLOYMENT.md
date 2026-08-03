@@ -248,7 +248,7 @@ curl -X POST http://localhost:5000/webhooks/stripe \
 
 ### 3. Access Live Dashboard
 - Dashboard: http://localhost:5000
-- Auto-refreshes every 5 seconds with real Stripe data
+- Auto-refreshes in real time via Server-Sent Events (`/api/events/stream`), pushed on Stripe webhook activity, with polling fallback
 - Shows MRR, customer count, and system status
 
 ### 4. Monitor Revenue
