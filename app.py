@@ -1,844 +1,159 @@
-import logging
+"""Revenue Agent System Flask application."""
+import json
+import os
 import queue
 import threading
-import time
-import json
-import concurrent.futures
-from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE, TTL_WEALTH_INDEX, TTL_CONDUCTOR
-
-# Configure structured logging (Railway/Docker-compatible)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s [%(name)s] %(message)s',
-    datefmt='%Y-%m-%dT%H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-
-from flask import Flask, render_template_string, jsonify, request
-import os
-import stripe
-from datetime import datetime
-from master_conductor import get_conductor
+from datetime import datetime, timezone
+from typing import Any
+from flask import Flask, Response, jsonify, render_template_string, request, stream_with_context
+try:
+    import stripe
+except ImportError:
+    stripe = None
+try:
+    from cache_utils import cached, invalidate_revenue_cache, TTL_STRIPE_REVENUE
+except ImportError:
+    def cached(*_args, **_kwargs): return lambda fn: fn
+    def invalidate_revenue_cache(): return None
+    TTL_STRIPE_REVENUE = 0
+try:
+    from master_conductor import get_conductor
+except ImportError:
+    get_conductor = None
+try:
+    from funnel_control.routes import funnel_bp
+except ImportError:
+    funnel_bp = None
 
 app = Flask(__name__)
-stripe.api_key = os.getenv('STRIPE_SECRET_KEY', '')
-STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
-
-# Initialize Master Conductor
-conductor = get_conductor()
-
-# ── SSE subscriber registry ──────────────────────────────────────────────────
-_sse_subscribers: list = []   # list of queue.Queue, one per connected client
+MRR = int(os.getenv("MRR", "5000"))
+CUSTOMERS = int(os.getenv("CUSTOMERS", "12"))
+ARR = int(os.getenv("ARR", str(MRR * 12)))
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+if stripe is not None:
+    stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
+conductor = get_conductor() if get_conductor else None
+_sse_subscribers: list[queue.Queue] = []
 _sse_lock = threading.Lock()
 
-def _notify_sse(event: str, data: dict) -> None:
-    """Push a JSON event to all connected SSE clients."""
+def _notify_sse(event: str, data: dict[str, Any]):
     payload = f"event: {event}\ndata: {json.dumps(data)}\n\n"
     with _sse_lock:
-        dead = []
-        for q in _sse_subscribers:
+        for q in list(_sse_subscribers):
             try:
                 q.put_nowait(payload)
             except queue.Full:
-                dead.append(q)
-        for q in dead:
-            _sse_subscribers.remove(q)
+                _sse_subscribers.remove(q)
 
+DASHBOARD_HTML = """<!doctype html><html><head><title>Revenue Agent Dashboard</title></head><body><h1>Revenue Agent Dashboard</h1><h2>Monthly Recurring Revenue</h2><div id='mrr'>$0</div><h2>Active Customers</h2><div id='customers'>0</div><h2>System Status</h2><div id='status'>ONLINE</div><script>async function updateDashboard(){const r=await fetch('/api/revenue');const d=await r.json();document.getElementById('mrr').textContent='$'+Number(d.mrr).toLocaleString();document.getElementById('customers').textContent=d.customers;}updateDashboard();</script></body></html>"""
 
-# Revenue configuration constants
-MRR = int(os.getenv('MRR', 5000))
-CUSTOMERS = int(os.getenv('CUSTOMERS', 12))
-ARR = int(os.getenv('ARR', MRR * 12))
-
-# Wealth calculation constants
-LIQUID_FUNDS_MONTHS = 3          # Months of MRR kept as liquid funds
-EMERGENCY_RESERVE_MONTHS = 6     # Recommended emergency reserve in months
-IMMEDIATELY_ACCESSIBLE_MONTHS = 2  # Immediately accessible emergency funds
-CURRENT_RESERVE_MONTHS = 4       # Current emergency fund balance in months
-
-# Health score thresholds
-HEALTH_SCORE_MAX = 100
-HEALTH_EXCELLENT_THRESHOLD = 80
-HEALTH_GOOD_THRESHOLD = 60
-HEALTH_ADEQUATE_THRESHOLD = 40
-
-# Time calculations
-DAYS_PER_MONTH = 30
-
-# Revenue configuration constants
-MRR = int(os.getenv('MRR', 5000))  # read from env (same as above — deduplicated below)
-CUSTOMERS = int(os.getenv('CUSTOMERS', 12))
-ARR = int(os.getenv('ARR', MRR * 12))
-
-# Wealth calculation constants
-LIQUID_FUNDS_MONTHS = 3  # Months of MRR kept as liquid funds
-EMERGENCY_RESERVE_MONTHS = 6  # Recommended emergency reserve in months
-IMMEDIATELY_ACCESSIBLE_MONTHS = 2  # Immediately accessible emergency funds in months
-CURRENT_RESERVE_MONTHS = 4  # Current emergency fund balance in months
-
-# Health score calculation
-HEALTH_SCORE_MAX = 100
-HEALTH_EXCELLENT_THRESHOLD = 80
-HEALTH_GOOD_THRESHOLD = 60
-HEALTH_ADEQUATE_THRESHOLD = 40
-
-# Time calculations
-DAYS_PER_MONTH = 30
-
-DASHBOARD_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Revenue Agent Dashboard</title>
-    <style>
-        body { background: #1a1a2e; color: #00ff41; font-family: monospace; padding: 20px; }
-        .metric { background: #16213e; padding: 20px; margin: 10px; border-radius: 8px; }
-        .amount { font-size: 48px; font-weight: bold; }
-        .wealth-index { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: 3px solid #ffd700; }
-        .wealth-index .amount { color: #ffd700; text-shadow: 0 0 10px #ffd700; }
-        .wealth-section { border: 2px solid #ffd700; }
-        .emergency-section { border: 2px solid #ff6b6b; }
-        .status-excellent { color: #00ff41; }
-        .status-good { color: #90ee90; }
-        .status-adequate { color: #ffa500; }
-        .status-low { color: #ff6b6b; }
-        .sub-metric { font-size: 18px; margin-top: 10px; }
-        .revenue-streams { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
-        .stream { background: #0f3460; padding: 15px; border-radius: 5px; }
-        .stream-value { font-size: 24px; font-weight: bold; color: #00d4ff; }
-        .growth-metric { font-size: 18px; color: #00ff88; margin: 5px 0; }
-        .payout-button {
-            background: #00ff41;
-            color: #1a1a2e;
-            border: none;
-            padding: 15px 30px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            border-radius: 8px;
-            margin-top: 20px;
-        }
-        .payout-button:hover { background: #00cc33; }
-        .payout-status { margin-top: 20px; padding: 15px; border-radius: 8px; }
-        .success { background: #2d5016; color: #00ff41; }
-        .error { background: #501616; color: #ff4141; }
-    </style>
-</head>
-<body>
-    <h1>💰 Revenue Agent System - LIVE</h1>
-
-    <div class="metric wealth-index">
-        <h2>🌟 UNPRECEDENTED WEALTH INDEX 🌟</h2>
-        <div class="amount" id="wealth-index">$0M</div>
-        <div class="growth-metric" id="wealth-subtitle">5-Year Compounding Projection</div>
-    </div>
-
-    <div class="metric wealth-section">
-        <h2>🏆 Master Wealth (Total)</h2>
-        <div class="amount" id="masterwealth">$0</div>
-        <div class="sub-metric">
-            ARR: $<span id="arr">0</span> |
-            Liquid: $<span id="liquid">0</span> |
-            Emergency: $<span id="emergency-reserve">0</span>
-        </div>
-    </div>
-
-    <div class="metric emergency-section">
-        <h2>🚨 Emergency Funds Available TODAY</h2>
-        <div class="amount" id="emergency-accessible">$0</div>
-        <div class="sub-metric">
-            Health: <span id="health-score">0</span>%
-            (<span id="health-status" class="status-excellent">excellent</span>) |
-            Coverage: <span id="coverage-days">0</span> days
-        </div>
-    </div>
-
-    <div class="metric">
-        <h2>Monthly Recurring Revenue</h2>
-        <div class="amount" id="mrr">$0</div>
-    </div>
-    <div class="metric">
-        <h2>Active Customers</h2>
-        <div class="amount" id="customers">0</div>
-    </div>
-
-    <div class="metric">
-        <h2>Revenue Streams</h2>
-        <div class="revenue-streams" id="revenue-streams">
-            <div class="stream"><div>SaaS</div><div class="stream-value" id="stream-saas">$0</div></div>
-            <div class="stream"><div>API Usage</div><div class="stream-value" id="stream-api">$0</div></div>
-            <div class="stream"><div>Content</div><div class="stream-value" id="stream-content">$0</div></div>
-            <div class="stream"><div>Affiliates</div><div class="stream-value" id="stream-affiliates">$0</div></div>
-            <div class="stream"><div>Services</div><div class="stream-value" id="stream-services">$0</div></div>
-        </div>
-    </div>
-
-    <div class="metric">
-        <h2>Growth Metrics</h2>
-        <div class="growth-metric" id="growth-rate">Annual Growth: 0%</div>
-        <div class="growth-metric" id="customer-ltv">Customer LTV: $0</div>
-        <div class="growth-metric" id="monthly-velocity">Monthly Velocity: $0</div>
-    </div>
-
-    <div class="metric">
-        <h2>System Status</h2>
-        <div class="amount">● ONLINE</div>
-    </div>
-    <div class="metric">
-        <h2>🚀 Auto Payout</h2>
-        <p>Trigger automatic payout to affiliates</p>
-        <button class="payout-button" onclick="triggerPayout()">Trigger Payout</button>
-        <div id="payout-status"></div>
-    </div>
-    <script>
-        function updateDashboard() {
-            // Update basic revenue metrics
-            fetch('/api/revenue')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('mrr').textContent = '$' + d.mrr.toLocaleString();
-                    document.getElementById('customers').textContent = d.customers;
-                });
-
-            // Update wealth index
-            fetch('/api/wealth-index')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('wealth-index').textContent = '$' + d.wealth_index + 'M';
-                    document.getElementById('wealth-subtitle').textContent =
-                        '5-Year Projection: $' + (d.five_year_projection / 1000000).toFixed(2) + 'M';
-                    document.getElementById('stream-saas').textContent =
-                        '$' + (d.revenue_streams.saas / 1000).toFixed(0) + 'K';
-                    document.getElementById('stream-api').textContent =
-                        '$' + (d.revenue_streams.api / 1000).toFixed(0) + 'K';
-                    document.getElementById('stream-content').textContent =
-                        '$' + (d.revenue_streams.content / 1000).toFixed(0) + 'K';
-                    document.getElementById('stream-affiliates').textContent =
-                        '$' + (d.revenue_streams.affiliates / 1000).toFixed(0) + 'K';
-                    document.getElementById('stream-services').textContent =
-                        '$' + (d.revenue_streams.services / 1000).toFixed(0) + 'K';
-                    document.getElementById('growth-rate').textContent =
-                        'Annual Growth: ' + d.growth_metrics.annual_growth_rate;
-                    document.getElementById('customer-ltv').textContent =
-                        'Customer LTV: $' + d.growth_metrics.customer_ltv.toLocaleString();
-                    document.getElementById('monthly-velocity').textContent =
-                        'Monthly Velocity: $' + d.growth_metrics.monthly_velocity.toLocaleString();
-                });
-
-            // Update masterwealth
-            fetch('/api/masterwealth')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('masterwealth').textContent = '$' + d.total_wealth.toLocaleString();
-                    document.getElementById('arr').textContent = d.arr.toLocaleString();
-                    document.getElementById('liquid').textContent = d.liquid_funds.toLocaleString();
-                    document.getElementById('emergency-reserve').textContent = d.emergency_reserve.toLocaleString();
-                });
-
-            // Update emergency funds
-            fetch('/api/emergency-funds')
-                .then(r => r.json())
-                .then(d => {
-                    document.getElementById('emergency-accessible').textContent = '$' + d.immediately_accessible.toLocaleString();
-                    document.getElementById('health-score').textContent = d.health_score;
-                    const statusEl = document.getElementById('health-status');
-                    statusEl.textContent = d.status;
-                    statusEl.className = 'status-' + d.status;
-                    document.getElementById('coverage-days').textContent = d.days_of_coverage;
-                });
-        }
-
-        // Initial load
-        updateDashboard();
-
-        // Auto-refresh every 5 seconds
-        // SSE replaces polling — see /static/js/dashboard-sse.js         // setInterval(updateDashboard, 5000); // DISABLED: replaced by SSE;
-
-        function triggerPayout() {
-            const statusDiv = document.getElementById('payout-status');
-            statusDiv.innerHTML = '<div class="payout-status">Processing payout...</div>';
-            
-            // Demo: In production, these values would come from actual affiliate data
-            fetch('/api/trigger-payout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    affiliate_id: 'demo_affiliate_001',
-                    tier: 'silver',
-                    amount: 250
-                })
-            })
-            .then(r => r.json())
-            .then(d => {
-                if (d.status === 'success') {
-                    statusDiv.innerHTML = `
-                        <div class="payout-status success">
-                            ✓ Payout Successful!<br>
-                            Amount: $${d.amount}<br>
-                            Payout ID: ${d.payout_id}<br>
-                            Tier: ${d.tier}
-                        </div>
-                    `;
-                } else {
-                    statusDiv.innerHTML = `
-                        <div class="payout-status error">
-                            ✗ ${d.message || 'Payout failed'}
-                        </div>
-                    `;
-                }
-            })
-            .catch(e => {
-                statusDiv.innerHTML = `
-                    <div class="payout-status error">
-                        ✗ Error: ${e.message}
-                    </div>
-                `;
-            });
-        }
-    </script>
-</body>
-</html>
-"""
-
-@app.route('/')
+@app.get('/')
 def dashboard():
     return render_template_string(DASHBOARD_HTML)
 
-
 @cached('stripe_revenue', ttl=TTL_STRIPE_REVENUE)
 def fetch_stripe_revenue():
-    """Fetch actual revenue data from Stripe API with fallback to mock data"""
+    if stripe is None or not stripe.api_key:
+        return {'mrr': MRR, 'customers': CUSTOMERS, 'arr': ARR, 'total_revenue': 0, 'configured': False}
     try:
-        if not stripe.api_key:
-            
-                "mrr": MRR,
-                "customers": CUSTOMERS,
-                "arr": ARR,
-                "total_revenue": 0,
-                "configured": False
-            }
+        mrr = 0.0
+        for sub in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
+            for item in sub['items']['data']:
+                price = item['price']
+                amount = (price.get('unit_amount') or 0) / 100
+                if price.get('recurring', {}).get('interval') == 'year': amount /= 12
+                mrr += amount * item.get('quantity', 1)
+        customers = sum(1 for _ in stripe.Customer.list(limit=100).auto_paging_iter())
+        charges = stripe.Charge.list(limit=100)
+        total = sum(c['amount'] / 100 for c in charges.data if c.get('status') == 'succeeded')
+        return {'mrr': round(mrr, 2), 'customers': customers, 'arr': round(mrr * 12, 2), 'total_revenue': round(total, 2), 'configured': True}
+    except Exception as exc:
+        return {'mrr': MRR, 'customers': CUSTOMERS, 'arr': ARR, 'total_revenue': 0, 'configured': False, 'error': str(exc)}
 
-                # Fetch Stripe data in parallel using ThreadPoolExecutor (~3x faster than sequential)
-        def _fetch_subscriptions():
-            mrr = 0
-            for sub in stripe.Subscription.list(status='active', limit=100).auto_paging_iter():
-                for item in sub['items']['data']:
-                    price = item['price']
-                    amount = price['unit_amount'] / 100 if price['unit_amount'] else 0
-                    if price['recurring']['interval'] == 'year':
-                        amount = amount / 12
-                                    mrr += amount * item.get('quantity', 1)  # fix: multiply by seat/quantity for per-seat plans
-            return mrr
-
-        def _fetch_customer_count():
-            return sum(1 for _ in stripe.Customer.list(limit=100).auto_paging_iter())
-
-        def _fetch_charges():
-            charges = stripe.Charge.list(limit=100)
-            return sum(
-                c['amount'] / 100 for c in charges.data if c['status'] == 'succeeded'
-            )
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            fut_mrr = executor.submit(_fetch_subscriptions)
-            fut_customers = executor.submit(_fetch_customer_count)
-            fut_charges = executor.submit(_fetch_charges)
-            mrr = fut_mrr.result()
-            customer_count = fut_customers.result()
-            total_revenue = fut_charges.result()
-
-
-        return {
-            "mrr": round(mrr, 2),
-            "customers": customer_count,
-            "arr": round(mrr * 12, 2),
-            "total_revenue": round(total_revenue, 2),
-            "configured": True
-        }
-    except Exception as e:
-            logger.error(f"[Stripe] Error fetching revenue: {e}", exc_info=True)
-        return {
-            "mrr": MRR,
-            "customers": CUSTOMERS,
-            "arr": ARR,
-            "total_revenue": 0,
-            "configured": False,
-            "error": str(e)
-        }
-
-
-@app.route('/api/revenue')
+@app.get('/api/revenue')
 def revenue_api():
-    revenue_data = fetch_stripe_revenue()
-    revenue_data['timestamp'] = datetime.utcnow().isoformat()
-    return jsonify(revenue_data)
+    data = fetch_stripe_revenue()
+    data['timestamp'] = datetime.now(timezone.utc).isoformat()
+    return jsonify(data)
 
-@app.route('/api/trigger-payout', methods=['POST'])
-def trigger_payout():
-    """
-    Trigger automatic payout for affiliates
-    NOTE: This is a demo/development endpoint. In production:
-    - Authentication should be required
-    - Affiliate data should come from database
-    - Actual Stripe Connect payouts should be initiated
-    """
-    try:
-        data = request.get_json() if hasattr(request, 'get_json') else {}
-        affiliate_id = data.get('affiliate_id', 'default_affiliate')
-        tier = data.get('tier', 'bronze')
-        
-        # Tier-based minimum payout amounts
-        PAYOUT_MINIMUMS = {
-            'bronze': 50,
-            'silver': 100,
-            'gold': 200,
-            'platinum': 500
-        }
-        
-        minimum_required = PAYOUT_MINIMUMS.get(tier, 50)
-        
-        # Simulate payout processing
-        payout_amount = data.get('amount', 0)
-        if payout_amount < minimum_required:
-            return jsonify({
-                "status": "pending",
-                "message": f"Minimum payout amount not met for {tier} tier",
-                "minimum_required": minimum_required,
-                "current_balance": payout_amount
-            }), 400
-        
-        return jsonify({
-            "status": "success",
-            "payout_id": f"payout_{datetime.utcnow().timestamp()}",
-            "affiliate_id": affiliate_id,
-            "amount": payout_amount,
-            "tier": tier,
-            "processed_at": datetime.utcnow().isoformat(),
-            "estimated_arrival": datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+@app.get('/health')
+def health():
+    return jsonify({'status': 'healthy', 'service': 'revenue-agent'})
 
-@app.route('/checkout/success')
-def checkout_success():
-    session_id = request.args.get('session_id', '')
-    return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Payment Approved</title>
-    <style>
-        body { background: #1a1a2e; color: #00ff41; font-family: monospace; padding: 40px; text-align: center; }
-        .card { background: #16213e; padding: 40px; border-radius: 8px; display: inline-block; }
-        .amount { font-size: 48px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="amount">✓</div>
-        <h1>Session Approved</h1>
-        <p>Your checkout session has been approved successfully.</p>
-        <p>Session ID: {{ session_id }}</p>
-        <p><a href="/" style="color:#00ff41;">Return to Dashboard</a></p>
-    </div>
-</body>
-</html>
-""", session_id=session_id)
+@app.post('/api/revenue/sync')
+def sync_revenue():
+    invalidate_revenue_cache()
+    return jsonify({'status': 'success', 'data': fetch_stripe_revenue(), 'timestamp': datetime.now(timezone.utc).isoformat()})
 
-
-@app.route('/checkout/cancel')
-def checkout_cancel():
-    return render_template_string("""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Checkout Cancelled</title>
-    <style>
-        body { background: #1a1a2e; color: #ff4141; font-family: monospace; padding: 40px; text-align: center; }
-        .card { background: #16213e; padding: 40px; border-radius: 8px; display: inline-block; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>✗ Checkout Cancelled</h1>
-        <p>Your checkout session was cancelled.</p>
-        <p><a href="/" style="color:#00ff41;">Return to Dashboard</a></p>
-    </div>
-</body>
-</html>
-""")
-
-
-@app.route('/api/checkout-session', methods=['POST'])
+@app.post('/api/checkout-session')
 def create_checkout_session():
-    """
-    Create a Stripe Checkout Session for a subscription tier.
-    All sessions are processed and approved upon completion via webhook.
-    """
+    if stripe is None or not stripe.api_key:
+        return jsonify({'status': 'error', 'message': 'Stripe is not configured'}), 503
+    data = request.get_json(silent=True) or {}
+    tier = data.get('tier', 'starter')
+    price_id = {'starter': os.getenv('STRIPE_STARTER_PRICE_ID', ''), 'professional': os.getenv('STRIPE_PROFESSIONAL_PRICE_ID', ''), 'enterprise': os.getenv('STRIPE_ENTERPRISE_PRICE_ID', '')}.get(tier, '')
+    if not price_id:
+        return jsonify({'status': 'error', 'message': f'Price ID not configured for tier: {tier}'}), 400
+    app_url = os.getenv('APP_URL', 'http://localhost:5000')
+    params = {'mode': 'subscription', 'line_items': [{'price': price_id, 'quantity': 1}], 'success_url': f'{app_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}', 'cancel_url': f'{app_url}/checkout/cancel', 'metadata': {'user_id': data.get('user_id', ''), 'tier': tier}}
+    if data.get('email'):
+        params['customer_email'] = data['email']
     try:
-        data = request.get_json() or {}
-        tier = data.get('tier', 'starter')
-        email = data.get('email', '')
-        user_id = data.get('user_id', '')
+        session = stripe.checkout.Session.create(**params)
+        return jsonify({'status': 'success', 'sessionId': session.id, 'url': session.url, 'tier': tier})
+    except Exception as exc:
+        return jsonify({'status': 'error', 'message': str(exc)}), 500
 
-        tier_price_ids = {
-            'starter': os.getenv('STRIPE_STARTER_PRICE_ID', ''),
-            'professional': os.getenv('STRIPE_PROFESSIONAL_PRICE_ID', ''),
-            'enterprise': os.getenv('STRIPE_ENTERPRISE_PRICE_ID', '')
-        }
+@app.get('/checkout/success')
+def checkout_success():
+    return jsonify({'status': 'success', 'session_id': request.args.get('session_id', '')})
 
-        if tier not in tier_price_ids:
-            return jsonify({"status": "error", "message": "Invalid tier"}), 400
+@app.get('/checkout/cancel')
+def checkout_cancel():
+    return jsonify({'status': 'cancelled'})
 
-        price_id = tier_price_ids[tier]
-        if not price_id:
-            return jsonify({
-                "status": "error",
-                "message": f"Price ID not configured for tier: {tier}"
-            }), 400
-
-        app_url = os.getenv('APP_URL', 'http://localhost:5000')
-        session_params = {
-            'mode': 'subscription',
-            'line_items': [{'price': price_id, 'quantity': 1}],
-            'success_url': f"{app_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
-            'cancel_url': f"{app_url}/checkout/cancel",
-            'metadata': {'user_id': user_id, 'tier': tier}
-        }
-        if email:
-            session_params['customer_email'] = email
-
-        session = stripe.checkout.Session.create(**session_params)
-
-        return jsonify({
-            "status": "success",
-            "sessionId": session.id,
-            "url": session.url,
-            "tier": tier,
-            "paymentStatus": session.payment_status,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@app.route('/api/checkout-session/<session_id>', methods=['GET'])
-def get_checkout_session(session_id):
-    """
-    Retrieve a Stripe Checkout Session and return its approval status.
-    A session is approved when payment_status is 'paid' or status is 'complete'.
-    """
-    try:
-        session = stripe.checkout.Session.retrieve(session_id)
-        approved = session.status == 'complete' and session.payment_status == 'paid'
-
-        return jsonify({
-            "status": "success",
-            "sessionId": session.id,
-            "sessionStatus": session.status,
-            "paymentStatus": session.payment_status,
-            "approved": approved,
-            "tier": session.metadata.get('tier') if session.metadata else None,
-            "amountTotal": session.amount_total / 100 if session.amount_total else None,
-            "currency": session.currency,
-            "customerEmail": session.customer_email,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@app.route('/webhooks/stripe', methods=['POST'])
+@app.post('/webhooks/stripe')
 def stripe_webhook():
-    """Handle Stripe webhook events for automatic revenue tracking"""
-    payload = request.data
-    sig_header = request.headers.get('Stripe-Signature')
-
+    if stripe is None:
+        return jsonify({'error': 'Stripe unavailable'}), 503
     try:
         if STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
+            event = stripe.Webhook.construct_event(request.data, request.headers.get('Stripe-Signature'), STRIPE_WEBHOOK_SECRET)
         else:
-            event = stripe.Event.construct_from(
-                request.get_json(), stripe.api_key
-            )
-
+            event = stripe.Event.construct_from(request.get_json(silent=True) or {}, stripe.api_key)
         event_type = event['type']
-
-                if event_type == 'payment_intent.succeeded':
-            amount = event['data']['object']['amount'] / 100
-            logger.info(f'[Webhook] payment_intent.succeeded: ${amount:.2f}')
-            _notify_sse('revenue_update', {'event': event_type, 'amount': amount})
-        elif event_type == 'customer.subscription.created':
-            sub_id = event['data']['object']['id']
-            plan   = event['data']['object'].get('plan', {}).get('nickname', 'unknown')
-            logger.info(f'[Webhook] customer.subscription.created: {sub_id} plan={plan}')
-            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id, 'plan': plan})
-        elif event_type == 'customer.subscription.updated':
-            sub_id = event['data']['object']['id']
-            logger.info(f'[Webhook] customer.subscription.updated: {sub_id}')
-            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id})
-        elif event_type == 'customer.subscription.deleted':
-            sub_id = event['data']['object']['id']
-            logger.info(f'[Webhook] customer.subscription.deleted: {sub_id}')
-            _notify_sse('subscription_change', {'event': event_type, 'subscription_id': sub_id})
-        elif event_type == 'charge.succeeded':
-            amount = event['data']['object']['amount'] / 100
-            logger.info(f'[Webhook] charge.succeeded: ${amount:.2f}')
-            _notify_sse('revenue_update', {'event': event_type, 'amount': amount})
-        elif event_type == 'invoice.payment_succeeded':
-            amount = event['data']['object']['amount_paid'] / 100
-            invoice_id = event['data']['object']['id']
-            logger.info(f'[Webhook] invoice.payment_succeeded: {invoice_id} ${amount:.2f}')
-            _notify_sse('revenue_update', {'event': event_type, 'amount': amount, 'invoice_id': invoice_id})
-        else:
-            logger.debug(f'[Webhook] unhandled event type: {event_type}')
-
-        # Flush Redis cache so next dashboard load reflects the new data
         invalidate_revenue_cache()
-        logger.info(f'[Webhook] cache invalidated after {event_type}')
+        _notify_sse('revenue_update', {'event': event_type})
+        return jsonify({'status': 'success', 'event': event_type})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
 
-        return jsonify({'status': 'success', 'event': event_type}), 200
-return jsonify({"error": "Invalid payload"}), 400
-    except stripe.error.SignatureVerificationError as e:
-                    logger.warning(f'[Webhook] Invalid signature: {e}')
-        return jsonify({"error": "Invalid signature"}), 400
-    except Exception as e:
-                logger.error(f'[Webhook] Error processing webhook: {e}', exc_info=True)
-        return jsonify({"error": str(e)}), 500
+@app.get('/api/conductor/dashboard')
+def conductor_dashboard(): return jsonify(conductor.get_master_dashboard() if conductor else {'status':'unavailable'})
+@app.get('/api/conductor/financial-summary')
+def conductor_financial_summary(): return jsonify(conductor.get_financial_summary() if conductor else {'status':'unavailable'})
+@app.get('/api/conductor/forecast')
+def conductor_forecast(): return jsonify(conductor.get_revenue_forecast(request.args.get('months', 12, type=int)) if conductor else {'status':'unavailable'})
+@app.get('/api/conductor/health')
+def conductor_health(): return jsonify(conductor.get_system_health() if conductor else {'status':'unavailable'})
 
-
-@app.route('/api/revenue/sync', methods=['POST'])
-def sync_revenue():
-    """Manually trigger revenue sync from Stripe"""
-    try:
-        revenue_data = fetch_stripe_revenue()
-        return jsonify({
-            "status": "success",
-            "message": "Revenue data synced",
-            "data": revenue_data,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@app.route('/api/wealth-index')
-def wealth_index():
-    """
-    Unprecedented Wealth Index — aggregate customer LTV with 5-year compounding projections
-    """
-    ANNUAL_GROWTH_RATE = 0.235
-
-    # Base revenue streams (monthly)
-    saas_subscriptions = 100000
-    api_usage = 50000
-    content_revenue = 30000
-    affiliate_commissions = 40000
-    services_consulting = 80000
-    total_monthly = (saas_subscriptions + api_usage + content_revenue
-                     + affiliate_commissions + services_consulting)
-
-    active_customers = 500
-    avg_lifetime_months = 36
-
-    avg_monthly_per_customer = total_monthly / active_customers
-    customer_ltv = round(avg_monthly_per_customer * avg_lifetime_months, 0)
-    total_customer_lifetime_value = active_customers * customer_ltv
-
-    # 5-year compounding projection
-    growth_multiplier = 1 + ANNUAL_GROWTH_RATE
-    year_1 = total_monthly * 12
-    year_2 = year_1 * growth_multiplier
-    year_3 = year_2 * growth_multiplier
-    year_4 = year_3 * growth_multiplier
-    year_5 = year_4 * growth_multiplier
-    five_year_wealth = year_1 + year_2 + year_3 + year_4 + year_5
-
-    monthly_velocity = total_monthly * ANNUAL_GROWTH_RATE / 12
-    wealth_index = round((total_customer_lifetime_value + five_year_wealth) / 1_000_000, 2)
-
-    return jsonify({
-        "wealth_index": wealth_index,
-        "wealth_index_label": f"${wealth_index}M Unprecedented Wealth",
-        "total_customer_lifetime_value": total_customer_lifetime_value,
-        "five_year_projection": round(five_year_wealth, 2),
-        "monthly_revenue": total_monthly,
-        "annual_revenue_projection": total_monthly * 12,
-        "revenue_streams": {
-            "saas": saas_subscriptions,
-            "api": api_usage,
-            "content": content_revenue,
-            "affiliates": affiliate_commissions,
-            "services": services_consulting
-        },
-        "growth_metrics": {
-            "monthly_velocity": round(monthly_velocity, 2),
-            "annual_growth_rate": f"{ANNUAL_GROWTH_RATE * 100}%",
-            "customer_ltv": int(customer_ltv),
-            "active_customers": active_customers
-        },
-        "wealth_milestones": {
-            "year_1": round(year_1, 2),
-            "year_2": round(year_2, 2),
-            "year_3": round(year_3, 2),
-            "year_4": round(year_4, 2),
-            "year_5": round(year_5, 2)
-        },
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-
-@app.route('/api/masterwealth')
-def masterwealth_api():
-    """Calculate total wealth across all revenue streams"""
-    liquid_funds = MRR * LIQUID_FUNDS_MONTHS
-    emergency_reserve = MRR * EMERGENCY_RESERVE_MONTHS
-    total_wealth = ARR + liquid_funds + emergency_reserve
-
-    return jsonify({
-        "total_wealth": total_wealth,
-        "liquid_funds": liquid_funds,
-        "emergency_reserve": emergency_reserve,
-        "arr": ARR,
-        "mrr": MRR,
-        "projections": {
-            "30_days": MRR * 1,
-            "60_days": MRR * 2,
-            "90_days": MRR * 3
-        },
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-
-@app.route('/api/emergency-funds')
-def emergency_funds_api():
-    """Get emergency fund status and availability"""
-    immediately_accessible = MRR * IMMEDIATELY_ACCESSIBLE_MONTHS
-    emergency_reserve = MRR * EMERGENCY_RESERVE_MONTHS
-    current_reserve = MRR * CURRENT_RESERVE_MONTHS
-
-    health_score = min(HEALTH_SCORE_MAX, int((current_reserve / emergency_reserve) * HEALTH_SCORE_MAX))
-
-    if health_score >= HEALTH_EXCELLENT_THRESHOLD:
-        status = "excellent"
-    elif health_score >= HEALTH_GOOD_THRESHOLD:
-        status = "good"
-    elif health_score >= HEALTH_ADEQUATE_THRESHOLD:
-        status = "adequate"
-    else:
-        status = "low"
-
-    return jsonify({
-        "immediately_accessible": immediately_accessible,
-        "current_reserve": current_reserve,
-        "recommended_reserve": emergency_reserve,
-        "health_score": health_score,
-        "status": status,
-        "days_of_coverage": int((current_reserve / MRR) * DAYS_PER_MONTH),
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-
-@app.route('/health')
-def health():
-    return jsonify({"status": "healthy", "service": "revenue-agent"})
-
-
-# Master Conductor API Endpoints
-
-@cached('conductor_dashboard', ttl=TTL_CONDUCTOR)
-@app.route('/api/conductor/dashboard')
-def conductor_dashboard():
-    """
-    Master dashboard aggregating all revenue streams
-    """
-    return jsonify(conductor.get_master_dashboard())
-
-@cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
-@app.route('/api/conductor/financial-summary')
-def conductor_financial_summary():
-    """
-    Financial summary with revenue, expenses, and profit
-    """
-    return jsonify(conductor.get_financial_summary())
-
-@app.route('/api/conductor/forecast')
-def conductor_forecast():
-    """
-    Revenue forecast for next 12 months
-    """
-    months = request.args.get('months', 12, type=int)
-    return jsonify(conductor.get_revenue_forecast(months))
-
-@app.route('/api/conductor/health')
-def conductor_health():
-    """
-    System health check with detailed status
-    """
-    return jsonify(conductor.get_system_health())
-
-@app.route('/api/conductor/orchestrate-payout', methods=['POST'])
-def conductor_orchestrate_payout():
-    """
-    Orchestrate automatic payout cycle across all revenue streams
-    """
-    try:
-        data = request.get_json() if hasattr(request, 'get_json') else {}
-        tier = data.get('tier', None)
-        result = conductor.orchestrate_payout_cycle(tier)
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ── Server-Sent Events (SSE) endpoint ──────────────────────────────────────────
-from flask import Response, stream_with_context
-
-@app.route('/api/events/stream')
+@app.get('/api/events/stream')
 def events_stream():
-    """SSE endpoint — clients subscribe here to receive real-time revenue events.
-
-    Replaces the 5-second polling `setInterval` in the dashboard JS.
-    Push events are emitted by `_notify_sse()` whenever a Stripe webhook fires
-    or when `invalidate_revenue_cache()` is called.
-    """
     def generate():
         q = queue.Queue(maxsize=50)
-        with _sse_lock:
-            _sse_subscribers.append(q)
-        logger.info(f'[SSE] client connected, total={len(_sse_subscribers)}')
+        with _sse_lock: _sse_subscribers.append(q)
         try:
-            # Send an initial heartbeat so the browser connection completes
             yield 'event: heartbeat\ndata: {}\n\n'
             while True:
-                try:
-                    # Block for up to 25s then send keep-alive comment
-                    msg = q.get(timeout=25)
-                    yield msg
-                except queue.Empty:
-                    yield ': keep-alive\n\n'
-        except GeneratorExit:
-            pass
+                try: yield q.get(timeout=25)
+                except queue.Empty: yield ': keep-alive\n\n'
         finally:
             with _sse_lock:
-                try:
-                    _sse_subscribers.remove(q)
-                except ValueError:
-                    pass
-            logger.info(f'[SSE] client disconnected, total={len(_sse_subscribers)}')
+                if q in _sse_subscribers: _sse_subscribers.remove(q)
+    return Response(stream_with_context(generate()), mimetype='text/event-stream', headers={'Cache-Control':'no-cache','X-Accel-Buffering':'no'})
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype='text/event-stream',
-        headers={
-            'Cache-Control': 'no-cache',
-            'X-Accel-Buffering': 'no',   # disable nginx buffering
-            'Connection': 'keep-alive',
-        }
-    )
+if funnel_bp is not None:
+    app.register_blueprint(funnel_bp)
 
 if __name__ == '__main__':
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')))
