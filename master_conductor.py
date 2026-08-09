@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 import logging
 import os
+import random
 from cache_utils import cached, TTL_CONDUCTOR
 
 logger = logging.getLogger(__name__)
@@ -28,12 +29,12 @@ class MasterConductor:
         }
 
         # Revenue constants (can be overridden by actual data)
-                self.mrr_base = int(os.getenv('MRR', 5000))
-                self.arr_multiplier = int(os.getenv('ARR_MULTIPLIER', 12))
-                self.growth_rate = float(os.getenv('GROWTH_RATE', 0.235))  # 23.5% monthly growth
+        self.mrr_base = int(os.getenv('MRR', 5000))
+        self.arr_multiplier = int(os.getenv('ARR_MULTIPLIER', 12))
+        self.growth_rate = float(os.getenv('GROWTH_RATE', 0.235))  # 23.5% monthly growth
 
-        @cached('conductor_master_dashboard', ttl=TTL_CONDUCTOR)
-def get_master_dashboard(self) -> Dict[str, Any]:
+    @cached('conductor_master_dashboard', ttl=TTL_CONDUCTOR)
+    def get_master_dashboard(self) -> Dict[str, Any]:
         """
         Returns comprehensive dashboard with all revenue streams
         """
@@ -104,10 +105,10 @@ def get_master_dashboard(self) -> Dict[str, Any]:
             },
             'topPerformers': self._get_top_performers(revenue_data),
             'metrics': {
-                                'customerAcquisitionCost': int(os.getenv('CAC', 45)),
-                                'averageLifetimeValue': int(os.getenv('LTV', 8500)),
-                                'churnRate': float(os.getenv('CHURN_RATE', 2.1)),
-                                'netPromoterScore': int(os.getenv('NPS', 72)),
+                'customerAcquisitionCost': int(os.getenv('CAC', 45)),
+                'averageLifetimeValue': int(os.getenv('LTV', 8500)),
+                'churnRate': float(os.getenv('CHURN_RATE', 2.1)),
+                'netPromoterScore': int(os.getenv('NPS', 72)),
                 'revenuePerCustomer': round(
                     revenue_data['total_monthly'] / max(revenue_data['total_customers'], 1)
                 )
@@ -115,8 +116,8 @@ def get_master_dashboard(self) -> Dict[str, Any]:
             'forecast': self._generate_forecast(revenue_data['total_monthly'])
         }
 
-        @cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
-def get_financial_summary(self) -> Dict[str, Any]:
+    @cached('conductor_financial_summary', ttl=TTL_CONDUCTOR)
+    def get_financial_summary(self) -> Dict[str, Any]:
         """
         Returns financial summary with revenue, expenses, and profit
         """
@@ -141,14 +142,14 @@ def get_financial_summary(self) -> Dict[str, Any]:
                 'gross': gross_revenue,
                 'netAfterCosts': net_revenue,
                 'taxable': net_revenue,
-                'margin': round((net_revenue / gross_revenue) * 100, 1)
+                'margin': round((net_revenue / gross_revenue) * 100, 1) if gross_revenue else 0
             },
             'expenses': expenses,
             'totalExpenses': total_expenses,
             'projections': {
                 'yearlyRevenue': gross_revenue * 12,
                 'yearlyProfit': net_revenue * 12,
-                'profitMargin': round((net_revenue / gross_revenue) * 100, 1)
+                'profitMargin': round((net_revenue / gross_revenue) * 100, 1) if gross_revenue else 0
             },
             'timestamp': datetime.utcnow().isoformat()
         }
@@ -168,11 +169,9 @@ def get_financial_summary(self) -> Dict[str, Any]:
         current_month = datetime.utcnow().month - 1  # 0-indexed
 
         for i in range(months):
-            # Apply compound growth with some randomness
             growth_factor = 1 + (self.growth_rate * (1 + random.uniform(-0.1, 0.1)))
             projected_revenue = round(current_revenue * (growth_factor ** (i + 1)))
 
-            # Calculate trend
             if i == 0:
                 trend = f"+{self.growth_rate * 100:.0f}%"
             else:
@@ -205,7 +204,6 @@ def get_financial_summary(self) -> Dict[str, Any]:
         revenue_data = self._calculate_all_revenue()
         health_score = self._calculate_health_score(revenue_data)
 
-        # Determine health status
         if health_score >= 90:
             status = 'excellent'
         elif health_score >= 75:
@@ -241,13 +239,8 @@ def get_financial_summary(self) -> Dict[str, Any]:
         """
         timestamp = datetime.utcnow()
 
-        # Affiliate payouts by tier
         affiliate_payouts = self._calculate_affiliate_payouts(tier)
-
-        # Content creator payouts
         content_payouts = self._calculate_content_payouts()
-
-        # Service provider payouts
         service_payouts = self._calculate_service_payouts()
 
         total_payouts = (
@@ -278,12 +271,10 @@ def get_financial_summary(self) -> Dict[str, Any]:
 
     def _calculate_all_revenue(self) -> Dict[str, Any]:
         """Calculate revenue from all streams"""
-                # Delegate to fetch_stripe_revenue() for real Stripe data (with Redis caching)
-        # Lazy import to avoid circular import
         from app import fetch_stripe_revenue
         try:
             stripe_data = fetch_stripe_revenue()
-            subscriptions = stripe_data.get('mrr', self.mrr_base) * 12  # annualized from MRR
+            subscriptions = stripe_data.get('mrr', self.mrr_base) * 12
             api_usage = int(os.getenv('API_USAGE_REVENUE', 0))
             affiliates = int(os.getenv('AFFILIATE_REVENUE', 0))
             content = int(os.getenv('CONTENT_REVENUE', 0))
@@ -297,7 +288,7 @@ def get_financial_summary(self) -> Dict[str, Any]:
         total_monthly = (subscriptions / 12) + api_usage + affiliates + content + services
 
         return {
-    'subscriptions': subscriptions,
+            'subscriptions': subscriptions,
             'api_usage': api_usage,
             'affiliates': affiliates,
             'content': content,
@@ -320,10 +311,8 @@ def get_financial_summary(self) -> Dict[str, Any]:
 
     def _calculate_health_score(self, revenue_data: Dict) -> int:
         """Calculate overall system health score (0-100)"""
-        # Base score from revenue
         revenue_score = min(100, (revenue_data['total_monthly'] / 300000) * 100)
 
-        # Diversity score (prefer balanced revenue streams)
         percentages = [
             self._calculate_percentage(revenue_data['subscriptions'], revenue_data['total_monthly']),
             self._calculate_percentage(revenue_data['api_usage'], revenue_data['total_monthly']),
@@ -332,12 +321,10 @@ def get_financial_summary(self) -> Dict[str, Any]:
             self._calculate_percentage(revenue_data['services'], revenue_data['total_monthly'])
         ]
 
-        # Lower standard deviation = more balanced = higher score
         avg = sum(percentages) / len(percentages)
         variance = sum((x - avg) ** 2 for x in percentages) / len(percentages)
         diversity_score = max(0, 100 - variance)
 
-        # Combined score
         return round((revenue_score * 0.7) + (diversity_score * 0.3))
 
     def _get_top_performers(self, revenue_data: Dict) -> List[Dict]:
@@ -350,7 +337,6 @@ def get_financial_summary(self) -> Dict[str, Any]:
             {'name': 'Content Sales', 'revenue': revenue_data['content']}
         ]
 
-        # Sort by revenue and return top 3
         performers.sort(key=lambda x: x['revenue'], reverse=True)
         return performers[:3]
 
@@ -376,7 +362,6 @@ def get_financial_summary(self) -> Dict[str, Any]:
         """Generate system alerts based on revenue data"""
         alerts = []
 
-        # Check for low-performing streams
         for stream, amount in [
             ('subscriptions', revenue_data['subscriptions']),
             ('affiliates', revenue_data['affiliates']),
@@ -389,7 +374,6 @@ def get_financial_summary(self) -> Dict[str, Any]:
                     'message': f"{stream.title()} revenue below $30k threshold"
                 })
 
-        # Check customer count
         if revenue_data['total_customers'] < 100:
             alerts.append({
                 'type': 'warning',
@@ -401,9 +385,6 @@ def get_financial_summary(self) -> Dict[str, Any]:
 
     def _generate_recommendations(self, revenue_data: Dict) -> List[str]:
         """Generate recommendations based on revenue data"""
-        recommendations = []
-
-        # Find lowest performing stream
         streams = {
             'subscriptions': revenue_data['subscriptions'],
             'api_usage': revenue_data['api_usage'],
@@ -413,15 +394,14 @@ def get_financial_summary(self) -> Dict[str, Any]:
         }
 
         lowest_stream = min(streams, key=streams.get)
-        recommendations.append(f"Focus growth efforts on {lowest_stream.replace('_', ' ')}")
-        recommendations.append("Maintain diversified revenue stream portfolio")
-        recommendations.append("Consider scaling top-performing services")
-
-        return recommendations
+        return [
+            f"Focus growth efforts on {lowest_stream.replace('_', ' ')}",
+            "Maintain diversified revenue stream portfolio",
+            "Consider scaling top-performing services"
+        ]
 
     def _calculate_affiliate_payouts(self, tier: str = None) -> Dict[str, Any]:
         """Calculate affiliate payouts"""
-        # Simulated payout calculations
         count = random.randint(10, 30)
         avg_payout = random.randint(200, 800)
         total = count * avg_payout
