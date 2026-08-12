@@ -1,4 +1,4 @@
-name: Revenue Engine — Daily Prospecting & Outreach
+name: Revenue Engine — Autonomous Runtime Validation
 
 on:
   schedule:
@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   prospecting-agent:
-    name: Run Revenue Orchestration
+    name: Validate Autonomous Revenue Runtime
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -34,10 +34,39 @@ jobs:
         run: python -m compileall -q .
       - name: Run tests
         run: pytest -q
-      - name: Verify Flask application import
+      - name: Verify production WSGI and autonomous routes
         env:
+          AUTONOMOUS_RUNTIME_ENABLED: '0'
           FLASK_ENV: production
-        run: python -c "from app import app; print('Revenue app imported:', app.name); print('Routes:', len(app.url_map.iter_rules()))"
+        run: |
+          python - <<'PY'
+          from funnel_control.wsgi import app
+          routes = {rule.rule for rule in app.url_map.iter_rules()}
+          required = {
+              '/api/agents/status', '/api/agents/start', '/api/agents/stop',
+              '/api/agents/force-cycle', '/api/agents/events', '/api/agents/health'
+          }
+          missing = required - routes
+          assert not missing, f'Missing autonomous routes: {sorted(missing)}'
+          print('Autonomous control plane validated:', sorted(required))
+          PY
+      - name: Execute isolated runtime cycle
+        env:
+          AUTONOMOUS_RUNTIME_ENABLED: '0'
+          AUTONOMOUS_RUNTIME_DB: /tmp/ci-runtime.sqlite3
+        run: |
+          python - <<'PY'
+          from autonomous_runtime import AutonomousRuntime
+          runtime = AutonomousRuntime(revenue_reader=lambda: {
+              'configured': True, 'mrr': 2500, 'customers': 10,
+              'arr': 30000, 'total_revenue': 5000
+          })
+          result = runtime.force_cycle()
+          assert result['status'] == 'completed'
+          assert result['cycle_count'] == 1
+          assert runtime.ledger.recent(1)
+          print('Autonomous cycle validated:', result['cycle_id'])
+          PY
       - name: Dry-run orchestration check
         env:
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
@@ -54,7 +83,7 @@ jobs:
       - name: Post run summary
         if: always()
         run: |
-          echo "## Revenue Engine Validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Autonomous Revenue Runtime Validation" >> "$GITHUB_STEP_SUMMARY"
           echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: ${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Status: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
